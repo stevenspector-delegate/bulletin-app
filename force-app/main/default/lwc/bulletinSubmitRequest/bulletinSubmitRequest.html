@@ -1,0 +1,61 @@
+<template>
+  <section class="wrap">
+    <header class="hdr">
+      <h2>Submit a Request</h2>
+      <p class="muted">Provide one clear description. Add headings, lists, screenshots—whatever helps.</p>
+    </header>
+
+    <div class="grid">
+      <lightning-combobox
+        name="type"
+        label="Type"
+        value={type}
+        options={typeOptions}
+        required
+        onchange={onTypeChange}>
+      </lightning-combobox>
+
+      <lightning-input
+        type="text"
+        label="Title (optional)"
+        value={title}
+        maxlength="100"
+        onchange={onTitleChange}>
+      </lightning-input>
+
+      <lightning-dual-listbox
+        name="categories"
+        label="Tags (choose at least one)"
+        source-label="Available"
+        selected-label="Selected"
+        options={categoryOptions}
+        value={selectedCategoryIds}
+        required
+        onchange={onCategoriesChange}>
+      </lightning-dual-listbox>
+    </div>
+
+    <div class="field">
+      <label class="slds-form-element__label">Description (Rich Text)</label>
+      <lightning-input-rich-text
+        value={bodyHtml}
+        onchange={onBodyChange}
+        placeholder="Start typing…"
+        formats={formats}
+        disabled={saving}>
+      </lightning-input-rich-text>
+      <p class="muted small">
+        Will save as: <strong>{effectiveTitle}</strong>
+      </p>
+    </div>
+
+    <div class="actions">
+      <lightning-button label="Cancel" onclick={cancel} disabled={saving}></lightning-button>
+      <lightning-button variant="brand" label="Submit" onclick={submit} disabled={saving}></lightning-button>
+    </div>
+
+    <template if:true={saving}>
+      <lightning-spinner size="small"></lightning-spinner>
+    </template>
+  </section>
+</template>

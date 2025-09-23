@@ -31,35 +31,30 @@ export default class BulletinBoard extends LightningElement {
   @track activeComments = [];
   @track statusSaved = false;
 
-  // flow modal
+  // submit modal (reuse existing state names for minimal change)
   @track flowOpen = false;
-  @track flowApiName = 'Request_New_Request_Wizard';
   @track flowTitle = 'New Request';
-  @track flowKey = 0; // force remount
+  @track initialType = 'Suggestion'; // << new: passed to child LWC
 
   // last filters
-  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME' };   // parent defaults: users=ME, admins=ANY
+  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME' };   // users=ME, admins=ANY
   lastSupportFilters    = { pageSize: 50, ownerScope: 'ANY' };
 
   async connectedCallback() {
     try {
-      // Context (admins, bulletin users)
       const ctx = await getBulletinContext();
       this.isAdmin = !!ctx?.isAdmin;
       this.adminUsers = ctx?.adminUsers || [];
       this.bulletinUsers = ctx?.bulletinUsers || [];
 
-      // Suggestion default scope depends on role
       this.lastSuggestionFilters.ownerScope = this.isAdmin ? 'ANY' : 'ME';
 
-      // Load ALL active categories for dropdowns (stop deriving from rows)
       const cats = await listActiveCategoryNames();
       this.categoryOptions = (cats || []).map(n => ({ label: n, value: n }));
     } catch (e) {
       console.error(e);
     }
 
-    // Initial data
     this.refreshSuggestions(this.lastSuggestionFilters);
   }
 
@@ -158,17 +153,26 @@ export default class BulletinBoard extends LightningElement {
     }catch(err){ console.error(err); }
   }
 
-  // Flow launcher (force remount with key)
-  launchNewSuggestion(){ this.flowTitle='New Suggestion'; this.flowApiName='Bulletin_Submit_a_Request'; this.flowKey = Date.now(); this.flowOpen=true; }
-  launchNewTicket(){ this.flowTitle='New Support Request'; this.flowApiName='Bulletin_Submit_a_Request'; this.flowKey = Date.now(); this.flowOpen=true; }
-  handleFlowStatus(evt){
-    const s = evt.detail?.status;
-    if(s==='FINISHED' || s==='FINISHED_SCREEN' || s==='PAUSED'){
-      this.flowOpen=false;
-      this.refreshSuggestions(this.lastSuggestionFilters);
-      this.refreshSupport(this.lastSupportFilters);
-    }
+  // Submit LWC launcher
+  launchNewSuggestion(){
+    this.flowTitle = 'New Suggestion';
+    this.initialType = 'Suggestion';
+    this.flowOpen = true;
   }
+  launchNewTicket(){
+    this.flowTitle = 'New Support Request';
+    this.initialType = 'Support Request';
+    this.flowOpen = true;
+  }
+
+  // Child submit events
+  handleSubmitSuccess(){
+    this.flowOpen = false;
+    if(this.isSuggestions) this.refreshSuggestions(this.lastSuggestionFilters);
+    if(this.isSupport)     this.refreshSupport(this.lastSupportFilters);
+  }
+
+  // Modal helpers
   closeFlow(){ this.flowOpen=false; }
   closeFlowIfBackdrop(e){ if(e.target.classList.contains('bb-backdrop')) this.closeFlow(); }
   stop(e){ e.stopPropagation(); }

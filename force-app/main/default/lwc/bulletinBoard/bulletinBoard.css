@@ -1,12 +1,75 @@
 :host {
   display: block;
-  background: #f7f8fb;   /* your surface color */
-  min-height: 80vh;      /* ensures it fills the viewport area */
+  background: #f7f8fb;   /* surface color */
+  min-height: 80vh;
 }
 
-.appbar{background:#0b1b2b;color:#fff;display:flex;align-items:center;justify-content:space-between}
-.brand .title{font-weight:800;margin-right:8px}
-.brand .by{opacity:.8;font-weight:600}
+/* Shell spacing for main area */
+.surface { padding: 12px 16px; }
+
+/* App bar & tabs */
+.appbar{
+  background:#0b1b2b;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.brand .title{font-weight:800;margin-right:8px;font-size:1.1rem}
+.brand .by{opacity:.85;font-weight:600}
+
 .tabs{display:flex;gap:0}
-.tab{background:#ffffff22;border:none;color:#fff;padding:.5rem .9rem;cursor:pointer;font-weight:700}
-.tab.active{background:#fff;color:#0b1b2b;border-radius:8px}
+.tab{
+  background:#ffffff22;
+  border:none;
+  color:#fff;
+  padding:.5rem .9rem;
+  cursor:pointer;
+  font-weight:700;
+}
+.tab.active{
+  background:#fff;
+  color:#0b1b2b;
+  border-radius:8px;
+}
+
+/* ===== Submit Modal (overlay) ===== */
+.bb-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  z-index:9999; /* above everything */
+}
+
+.bb-modal{
+  background:var(--lwc-colorBackgroundAlt,#fff);
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  width:min(880px,92vw);
+  max-height:calc(100vh - 6rem);
+  box-shadow:0 12px 32px rgba(0,0,0,.20);
+  display:flex;
+  flex-direction:column;
+}
+
+.bb-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 16px;
+  border-bottom:1px solid #e5e7eb;
+}
+.bb-title{
+  margin:0;
+  font-size:1.05rem;
+  font-weight:700;
+}
+
+.bb-body{
+  padding:14px 16px;
+  overflow:auto; /* scroll form content while modal stays fixed */
+}

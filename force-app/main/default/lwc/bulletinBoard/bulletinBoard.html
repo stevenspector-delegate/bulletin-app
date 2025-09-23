@@ -40,25 +40,33 @@
   </div>
 
   <c-bulletin-detail-modal
-      open={detailOpen}
-      record={activeRecord}
-      comments={activeComments}
-      status-saved={statusSaved}
-      onclose={closeDetail}
-      onsavestatus={handleSaveStatus}
-      onpostcomment={handlePostComment}>
+    open={detailOpen}
+    record={activeRecord}
+    comments={activeComments}
+    status-saved={statusSaved}
+    onclose={closeDetail}
+    onsavestatus={handleSaveStatus}
+    onpostcomment={handlePostComment}>
   </c-bulletin-detail-modal>
 
-  <!-- Flow modal -->
+  <!-- Submit Request Modal (overlay) -->
   <template if:true={flowOpen}>
-    <section class="bb-backdrop" onclick={closeFlowIfBackdrop}>
+    <section role="dialog" aria-modal="true" class="bb-backdrop" onclick={closeFlowIfBackdrop}>
       <div class="bb-modal" onclick={stop}>
-        <header class="bb-head">
-          <h2>{flowTitle}</h2>
-          <lightning-button-icon icon-name="utility:close" alternative-text="Close" onclick={closeFlow}></lightning-button-icon>
+        <header class="bb-header">
+          <h2 class="bb-title">{flowTitle}</h2>
+          <lightning-button-icon
+            icon-name="utility:close"
+            alternative-text="Close"
+            onclick={closeFlow}>
+          </lightning-button-icon>
         </header>
         <div class="bb-body">
-          <lightning-flow key={flowKey} flow-api-name={flowApiName} onstatuschange={handleFlowStatus}></lightning-flow>
+          <c-bulletin-submit-request
+            initial-type={initialType}
+            onsuccess={handleSubmitSuccess}
+            oncancel={closeFlow}>
+          </c-bulletin-submit-request>
         </div>
       </div>
     </section>

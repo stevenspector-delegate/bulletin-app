@@ -35,17 +35,21 @@ public without sharing class BulletinService {
         @AuraEnabled public String name;
         public UserOption(Id i, String n){ id=i; name=n; }
     }
+    public class CategoryOption {
+        @AuraEnabled public Id id;
+        @AuraEnabled public String name;
+        public CategoryOption(Id i, String n){ id=i; name=n; }
+    }
     public class BulletinContext {
         @AuraEnabled public Boolean isAdmin;
         @AuraEnabled public List<UserOption> adminUsers;
         @AuraEnabled public List<UserOption> bulletinUsers;
-        @AuraEnabled public String adminQueueName; // informational; not used for filtering anymore
+        @AuraEnabled public String adminQueueName; // informational
     }
 
     /* ==================== Entry Points ==================== */
     @AuraEnabled
     public static List<RequestDto> listSuggestions(String filtersJson){
-        // Keep strict type to your data model
         return queryRequests(new Set<String>{ 'Suggestion' }, parse(filtersJson), /*supportView*/ false);
     }
 
@@ -85,12 +89,23 @@ public without sharing class BulletinService {
                 ctx.bulletinUsers.add(new UserOption(u.Id, u.Name));
         }
 
-        // Kept for reference; filtering no longer depends on a single queue name.
         ctx.adminQueueName = 'Bulletin_Admin_Queue';
         return ctx;
     }
 
-    /* NEW: All active category names for filter dropdowns */
+    /* ======= Categories for filters & form ======= */
+    @AuraEnabled(cacheable=true)
+    public static List<CategoryOption> listActiveCategories(){
+        List<CategoryOption> out = new List<CategoryOption>();
+        for (Bulletin_Category__c c : [
+            SELECT Id, Name
+            FROM Bulletin_Category__c
+            WHERE Active__c = true
+            ORDER BY Name
+        ]) out.add(new CategoryOption(c.Id, c.Name));
+        return out;
+    }
+
     @AuraEnabled(cacheable=true)
     public static List<String> listActiveCategoryNames(){
         List<String> out = new List<String>();
@@ -126,16 +141,15 @@ public without sharing class BulletinService {
             whereParts.add('(Title__c LIKE \'' + searchLike + '\' OR Description__c LIKE \'' + searchLike + '\')');
         }
 
-        // Scoping (kept to your original meaning of "my")
+        // Scoping (kept to your current semantics)
         if (supportView) {
-            // Non-admins: only tickets they CREATED
             if (!isAdmin) {
                 whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (String.isNotBlank(scope) && scope != 'ANY') {
                 if (scope == 'ME') {
                     whereParts.add('OwnerId = \'' + uid + '\'');
                 } else if (scope == 'UNASSIGNED') {
-                    Set<Id> qids = getRequestQueueIds(); // <- all queues that can own Bulletin_Request__c
+                    Set<Id> qids = getRequestQueueIds();
                     if (!qids.isEmpty()) {
                         whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
                     } else {
@@ -146,14 +160,13 @@ public without sharing class BulletinService {
                 }
             }
         } else {
-            // Suggestions: default = ME (submitter) for users, ANY for admins
             String eff = scope;
             if (String.isBlank(eff)) eff = (isAdmin ? 'ANY' : 'ME');
             if (eff == 'ME') {
                 whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (eff.startsWith('USER:')) {
                 whereParts.add('CreatedById = \'' + String.escapeSingleQuotes(eff.substring(5)) + '\'');
-            } // ANY => no CreatedBy filter
+            }
         }
 
         if (statusVal != null) whereParts.add('Status__c = \'' + statusVal + '\'');
@@ -273,6 +286,68 @@ public without sharing class BulletinService {
         return d;
     }
 
+    /* ==================== Create (single RTE form) ==================== */
+    @AuraEnabled
+    public static RequestDto createRequest(String type, String title, String bodyHtml, List<Id> categoryIds){
+        // Normalize type
+        String t = (String.isBlank(type) ? 'Suggestion' : type.trim());
+        if (t != 'Suggestion' && t != 'Support Request') t = 'Suggestion';
+
+        // Title: if provided, use it; else derive from body
+        String finalTitle;
+        if (!String.isBlank(title)) {
+            finalTitle = title.trim();
+        } else {
+            String plain = (bodyHtml == null) ? '' : bodyHtml.replaceAll('<[^>]*>', ' ');
+            String compact = plain != null ? plain.trim().replaceAll('\\s+', ' ') : '';
+            finalTitle = (compact.length() > 28) ? compact.substring(0,25) + '...' : (String.isBlank(compact) ? 'New request' : compact);
+        }
+
+        // Header (Suggested By / Date) + hr
+        String who = UserInfo.getFirstName() + ' ' + UserInfo.getLastName();
+        String dateStr = Datetime.now().format('MMM d, yyyy');
+        String header =
+            '<div style="font-size:13px; margin:0 0 16px 0; color:#444;">' +
+            '<span style="font-weight:600; color:#000;">Suggested By:</span> <i>' + htmlEscape(who) + '</i><br/>' +
+            '<span style="font-weight:600; color:#000;">Date:</span> <i>' + htmlEscape(dateStr) + '</i>' +
+            '</div>' +
+            '<hr style="border:0; border-top:1px solid #e5e7eb; margin:12px 0;">';
+
+        String wrapperStart = '<div style="font-family: Arial,Helvetica,sans-serif; line-height:1.5; font-size:14px; padding:12px 14px; border:1px solid #e5e7eb; border-radius:8px;">';
+        String wrapperEnd   = '</div>';
+        String safeBody     = (bodyHtml == null ? '' : bodyHtml); // LIRTE output
+        String finalHtml    = wrapperStart + header + safeBody + wrapperEnd;
+
+        Bulletin_Request__c req = new Bulletin_Request__c();
+        req.Type__c        = t;
+        req.Status__c      = 'New';
+        req.Title__c       = finalTitle;
+        req.Description__c = finalHtml;
+
+        if (t == 'Support Request') {
+            Id q = findSupportQueueId();
+            if (q != null) req.OwnerId = q;
+        }
+
+        insert req;
+
+        if (categoryIds != null && !categoryIds.isEmpty()){
+            Map<Id, Bulletin_Category__c> catsById = new Map<Id, Bulletin_Category__c>([
+                SELECT Id, Name FROM Bulletin_Category__c WHERE Id IN :categoryIds
+            ]);
+            List<Bulletin_Tag__c> toInsert = new List<Bulletin_Tag__c>();
+            for (Id cid : catsById.keySet()){
+                Bulletin_Tag__c tag = new Bulletin_Tag__c();
+                tag.Request__c  = req.Id;
+                tag.Category__c = cid;
+                tag.Name        = catsById.get(cid).Name;
+                toInsert.add(tag);
+            }
+            if (!toInsert.isEmpty()) insert toInsert;
+        }
+        return getRequest(req.Id);
+    }
+
     /* ==================== Helpers ==================== */
     private static Filters parse(String filtersJson){
         return (Filters) JSON.deserialize(filtersJson == null ? '{}' : filtersJson, Filters.class);
@@ -298,7 +373,19 @@ public without sharing class BulletinService {
         return d;
     }
 
-    // ----- Queue helpers (for "UNASSIGNED") -----
+    // HTML escape helper (fallback for orgs without EncodingUtil.escapeHtml4)
+    private static String htmlEscape(String s){
+        if (s == null) return null;
+        String out = s;
+        out = out.replaceAll('&', '&amp;');   // replace ampersand first
+        out = out.replaceAll('<', '&lt;');
+        out = out.replaceAll('>', '&gt;');
+        out = out.replaceAll('"', '&quot;');
+        out = out.replaceAll('\'' , '&#39;');
+        return out;
+    }
+
+    // ===== UNASSIGNED support queue logic =====
     private static Set<Id> REQUEST_QUEUE_IDS;
     private static Set<Id> getRequestQueueIds(){
         if (REQUEST_QUEUE_IDS != null) return REQUEST_QUEUE_IDS;
@@ -315,7 +402,6 @@ public without sharing class BulletinService {
         return String.join(parts, ',');
     }
 
-    // ----- Admin helpers -----
     private static Boolean hasBulletinAdmin(){
         try {
             Integer cnt = [
@@ -326,5 +412,22 @@ public without sharing class BulletinService {
             ];
             return cnt > 0;
         } catch (Exception e) { return false; }
+    }
+
+    private static Id SUPPORT_QUEUE_ID;
+    private static Id findSupportQueueId(){
+        if (SUPPORT_QUEUE_ID != null) return SUPPORT_QUEUE_ID;
+        try {
+            for (Group g : [SELECT Id FROM Group WHERE Type='Queue' AND DeveloperName='Bulletin_Support' LIMIT 1]){
+                SUPPORT_QUEUE_ID = g.Id; return SUPPORT_QUEUE_ID;
+            }
+            for (Group g : [SELECT Id FROM Group WHERE Type='Queue' AND Name='Bulletin Support' LIMIT 1]){
+                SUPPORT_QUEUE_ID = g.Id; return SUPPORT_QUEUE_ID;
+            }
+            for (QueueSobject qs : [SELECT QueueId FROM QueueSobject WHERE SObjectType='Bulletin_Request__c' LIMIT 1]){
+                SUPPORT_QUEUE_ID = qs.QueueId; return SUPPORT_QUEUE_ID;
+            }
+        } catch (Exception e) { /* ignore */ }
+        return null;
     }
 }
