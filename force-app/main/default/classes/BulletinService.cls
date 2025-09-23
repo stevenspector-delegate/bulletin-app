@@ -5,9 +5,8 @@ public without sharing class BulletinService {
         @AuraEnabled public String status;
         @AuraEnabled public String categoryName;
         @AuraEnabled public Integer pageSize;
-        // Owner filtering:
-        //  - Suggestions: 'ANY' | 'ME' | 'USER:<Id>'
-        //  - Support:     'ANY' | 'ME' | 'UNASSIGNED' | 'USER:<Id>'
+        // Suggestions: 'ANY' | 'ME' | 'USER:<Id>'
+        // Support:     'ANY' | 'ME' | 'UNASSIGNED' | 'USER:<Id>'
         @AuraEnabled public String ownerScope;
     }
     public class RequestDto {
@@ -48,6 +47,7 @@ public without sharing class BulletinService {
     public static List<RequestDto> listSuggestions(String filtersJson){
         return queryRequests(new Set<String>{ 'Suggestion' }, parse(filtersJson), /*supportView*/ false);
     }
+
     @AuraEnabled
     public static List<RequestDto> listSupportTickets(String filtersJson){
         return queryRequests(new Set<String>{ 'Support Request' }, parse(filtersJson), /*supportView*/ true);
@@ -60,13 +60,15 @@ public without sharing class BulletinService {
 
         Set<Id> adminIds = new Set<Id>();
         for (PermissionSetAssignment psa : [
-            SELECT AssigneeId FROM PermissionSetAssignment
+            SELECT AssigneeId
+            FROM PermissionSetAssignment
             WHERE PermissionSet.Name = 'Bulletin_Admin' OR PermissionSet.Label = 'Bulletin Admin'
         ]) adminIds.add(psa.AssigneeId);
 
         Set<Id> userIds = new Set<Id>();
         for (PermissionSetAssignment psa : [
-            SELECT AssigneeId FROM PermissionSetAssignment
+            SELECT AssigneeId
+            FROM PermissionSetAssignment
             WHERE PermissionSet.Name = 'Bulletin_User' OR PermissionSet.Label = 'Bulletin User'
         ]) userIds.add(psa.AssigneeId);
 
@@ -86,6 +88,19 @@ public without sharing class BulletinService {
         return ctx;
     }
 
+    /* NEW: All active category names for filter dropdowns */
+    @AuraEnabled(cacheable=true)
+    public static List<String> listActiveCategoryNames(){
+        List<String> out = new List<String>();
+        for (Bulletin_Category__c c : [
+            SELECT Name
+            FROM Bulletin_Category__c
+            WHERE Active__c = true
+            ORDER BY Name
+        ]) out.add(c.Name);
+        return out;
+    }
+
     /* ==================== Core Listing ==================== */
     private static List<RequestDto> queryRequests(Set<String> types, Filters f, Boolean supportView){
         Integer lim = (f != null && f.pageSize != null && f.pageSize > 0) ? Math.min(f.pageSize, 200) : 50;
@@ -96,8 +111,10 @@ public without sharing class BulletinService {
         String scope      = (f != null ? f.ownerScope : null);
 
         Boolean isAdmin = hasBulletinAdmin();
+        String uid = UserInfo.getUserId();
 
         List<String> whereParts = new List<String>();
+
         if (!types.isEmpty()){
             List<String> esc = new List<String>();
             for (String t : types) esc.add('\'' + String.escapeSingleQuotes(t) + '\'');
@@ -107,14 +124,14 @@ public without sharing class BulletinService {
             whereParts.add('(Title__c LIKE \'' + searchLike + '\' OR Description__c LIKE \'' + searchLike + '\')');
         }
 
-        // ---- Owner scoping
+        // Scoping (kept consistent with your original semantics)
         if (supportView) {
-            // Help Desk: non-admins see only tickets they CREATED; admins use ownerScope (default ANY)
+            // Non-admins: only tickets they CREATED
             if (!isAdmin) {
-                whereParts.add('CreatedById = \'' + UserInfo.getUserId() + '\'');
+                whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (String.isNotBlank(scope) && scope != 'ANY') {
                 if (scope == 'ME') {
-                    whereParts.add('OwnerId = \'' + UserInfo.getUserId() + '\'');
+                    whereParts.add('OwnerId = \'' + uid + '\'');
                 } else if (scope == 'UNASSIGNED') {
                     Id qid = getAdminQueueId();
                     whereParts.add(qid != null ? 'OwnerId = \'' + qid + '\'' : 'OwnerId = \'000000000000000AAA\'');
@@ -123,11 +140,11 @@ public without sharing class BulletinService {
                 }
             }
         } else {
-            // Suggestion Box: everyone can browse; default = ME for Bulletin Users, ANY for Admins
+            // Suggestions: default = ME (submitter) for users, ANY for admins
             String eff = scope;
             if (String.isBlank(eff)) eff = (isAdmin ? 'ANY' : 'ME');
             if (eff == 'ME') {
-                whereParts.add('CreatedById = \'' + UserInfo.getUserId() + '\'');
+                whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (eff.startsWith('USER:')) {
                 whereParts.add('CreatedById = \'' + String.escapeSingleQuotes(eff.substring(5)) + '\'');
             } // ANY => no CreatedBy filter
@@ -150,6 +167,7 @@ public without sharing class BulletinService {
         Set<Id> reqIds = new Set<Id>();
         for (Bulletin_Request__c r : rows) reqIds.add(r.Id);
 
+        // Categories per request
         Map<Id, List<String>> catsByReq = new Map<Id, List<String>>();
         for (Bulletin_Tag__c t : [
             SELECT Request__c, Category__r.Name
@@ -160,6 +178,7 @@ public without sharing class BulletinService {
             if (t.Category__r != null) catsByReq.get(t.Request__c).add(t.Category__r.Name);
         }
 
+        // Comment counts
         Map<Id, Integer> cmtMap = new Map<Id, Integer>();
         for (AggregateResult ar : [
             SELECT Request__c rid, COUNT(Id) cnt
@@ -168,6 +187,7 @@ public without sharing class BulletinService {
             GROUP BY Request__c
         ]) cmtMap.put((Id)ar.get('rid'), (Integer)ar.get('cnt'));
 
+        // Map to DTOs
         List<RequestDto> out = new List<RequestDto>();
         for (Bulletin_Request__c r : rows){
             out.add(toDto(
@@ -191,7 +211,9 @@ public without sharing class BulletinService {
         ];
         List<String> cats = new List<String>();
         for (Bulletin_Tag__c t : [
-            SELECT Category__r.Name FROM Bulletin_Tag__c WHERE Request__c = :id
+            SELECT Category__r.Name
+            FROM Bulletin_Tag__c
+            WHERE Request__c = :id
         ]) if (t.Category__r != null) cats.add(t.Category__r.Name);
         Integer ccount = [SELECT COUNT() FROM Bulletin_Comment__c WHERE Request__c = :id];
         return toDto(r, cats, ccount);
@@ -216,8 +238,11 @@ public without sharing class BulletinService {
             ORDER BY CreatedDate ASC
         ]) {
             CommentDto d = new CommentDto();
-            d.id = c.Id; d.authorName = (c.CreatedBy != null ? c.CreatedBy.Name : null);
-            d.createdOn = c.CreatedDate; d.body = c.Body__c; out.add(d);
+            d.id = c.Id;
+            d.authorName = (c.CreatedBy != null ? c.CreatedBy.Name : null);
+            d.createdOn = c.CreatedDate;
+            d.body = c.Body__c;
+            out.add(d);
         }
         return out;
     }
@@ -227,49 +252,73 @@ public without sharing class BulletinService {
         if (String.isBlank(body)) throw new AuraHandledException('Comment body required');
         Bulletin_Comment__c c = new Bulletin_Comment__c(Request__c = requestId, Body__c = body);
         insert c;
+
         Bulletin_Comment__c reloaded = [
-            SELECT Id, Body__c, CreatedBy.Name, CreatedDate FROM Bulletin_Comment__c WHERE Id = :c.Id
+            SELECT Id, Body__c, CreatedBy.Name, CreatedDate
+            FROM Bulletin_Comment__c
+            WHERE Id = :c.Id
         ];
+
         CommentDto d = new CommentDto();
-        d.id = reloaded.Id; d.authorName = (reloaded.CreatedBy != null ? reloaded.CreatedBy.Name : null);
-        d.createdOn = reloaded.CreatedDate; d.body = reloaded.Body__c; return d;
+        d.id = reloaded.Id;
+        d.authorName = (reloaded.CreatedBy != null ? reloaded.CreatedBy.Name : null);
+        d.createdOn = reloaded.CreatedDate;
+        d.body = reloaded.Body__c;
+        return d;
     }
 
     /* ==================== Helpers ==================== */
     private static Filters parse(String filtersJson){
         return (Filters) JSON.deserialize(filtersJson == null ? '{}' : filtersJson, Filters.class);
     }
-    private static String fmt(Datetime dt){ return (dt == null) ? null : dt.format('MMM d'); }
+    private static String fmt(Datetime dt){
+        return (dt == null) ? null : dt.format('MMM d');
+    }
     private static RequestDto toDto(Bulletin_Request__c r, List<String> cats, Integer ccount){
         RequestDto d = new RequestDto();
-        d.id = r.Id; d.recordNumber = r.Name; d.title = r.Title__c; d.type = r.Type__c;
-        d.status = r.Status__c; d.priority = r.Priority__c; d.categories = (cats != null ? cats : new List<String>());
-        d.ownerName = (r.Owner != null ? r.Owner.Name : null); d.createdByName = (r.CreatedBy != null ? r.CreatedBy.Name : null);
-        d.createdDate = fmt(r.CreatedDate); d.updatedDate = fmt(r.LastModifiedDate);
-        d.commentCount = (ccount == null ? 0 : ccount); d.descriptionHtml = r.Description__c; return d;
+        d.id = r.Id;
+        d.recordNumber = r.Name;
+        d.title = r.Title__c;
+        d.type = r.Type__c;
+        d.status = r.Status__c;
+        d.priority = r.Priority__c;
+        d.categories = (cats != null ? cats : new List<String>());
+        d.ownerName = (r.Owner != null ? r.Owner.Name : null);
+        d.createdByName = (r.CreatedBy != null ? r.CreatedBy.Name : null);
+        d.createdDate = fmt(r.CreatedDate);
+        d.updatedDate = fmt(r.LastModifiedDate);
+        d.commentCount = (ccount == null ? 0 : ccount);
+        d.descriptionHtml = r.Description__c;
+        return d;
     }
 
     // ----- Admin helpers -----
     private static Boolean hasBulletinAdmin(){
         try {
             Integer cnt = [
-                SELECT COUNT() FROM PermissionSetAssignment
+                SELECT COUNT()
+                FROM PermissionSetAssignment
                 WHERE AssigneeId = :UserInfo.getUserId()
                 AND (PermissionSet.Name = 'Bulletin_Admin' OR PermissionSet.Label = 'Bulletin Admin')
             ];
             return cnt > 0;
         } catch (Exception e) { return false; }
     }
+
     private static Id ADMIN_QUEUE_ID;
     private static Id getAdminQueueId(){
         if (ADMIN_QUEUE_ID != null) return ADMIN_QUEUE_ID;
         try {
             Group g = [
                 SELECT Id FROM Group
-                WHERE Type = 'Queue' AND (Name = 'Bulletin_Admin_Queue' OR DeveloperName = 'Bulletin_Admin_Queue')
+                WHERE Type = 'Queue'
+                AND (Name = 'Bulletin_Admin_Queue' OR DeveloperName = 'Bulletin_Admin_Queue')
                 LIMIT 1
             ];
-            ADMIN_QUEUE_ID = g.Id; return ADMIN_QUEUE_ID;
-        } catch (Exception e) { return null; }
+            ADMIN_QUEUE_ID = g.Id;
+            return ADMIN_QUEUE_ID;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

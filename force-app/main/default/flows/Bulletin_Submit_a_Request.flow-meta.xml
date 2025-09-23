@@ -169,8 +169,8 @@ IF(NOT(ISBLANK({!Anything_Else})),&quot;&lt;div style=&apos;margin:10px 0 0 0;&a
         <dataType>String</dataType>
         <expression>LEFT({!Description}, 25) + &quot;...&quot;</expression>
     </formulas>
-    <interviewLabel>Request: New Request Wizard {!$Flow.CurrentDateTime}</interviewLabel>
-    <label>Request: New Request Wizard</label>
+    <interviewLabel>Bulletin: Submit a Request {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Bulletin: Submit a Request</label>
     <loops>
         <name>Loop_Categories</name>
         <label>Loop Categories</label>
