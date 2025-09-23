@@ -1,206 +1,158 @@
+Perfect—here’s a tightened **README.md** with your updates baked in:
 
 ---
 
 # Bulletin by Delegate
 
-A lightweight, Salesforce-native “bulletin board” that centralizes two common workflows in one polished UI:
+A lightweight, Salesforce-native bulletin board that unifies two workflows:
 
-* **Suggestion Box** – collect, browse, and discuss product/feature ideas.
-* **Help Desk** – triage and resolve internal support tickets.
+* **Suggestion Box** – collect & browse product ideas.
+* **Help Desk** – triage & resolve internal support tickets.
 
-Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It runs on standard Salesforce features (Queues, Permission Sets) and a small set of custom objects for requests, categories, tags, and comments.
-
-> **Audience:** Functional business analysts, admins, and Salesforce developers.
-> **Goal:** Understand the purpose, data flow, permissions, and how the parts fit together—plus how to deploy and extend safely.
+Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It uses standard Salesforce features (Queues, Permission Sets) and a small set of custom objects for requests, categories, tags, and comments.
 
 ---
 
-## Table of Contents
-
-1. [High-Level Architecture](#high-level-architecture)
-2. [Data Model](#data-model)
-3. [Permissions & Visibility](#permissions--visibility)
-4. [Apex Service (API Surface)](#apex-service-api-surface)
-5. [LWC Components](#lwc-components)
-6. [Filtering & Scoping Rules](#filtering--scoping-rules)
-7. [UI Behavior & UX Notes](#ui-behavior--ux-notes)
-8. [Install & Setup (Package Flow)](#install--setup-package-flow)
-9. [Configuration Checklist](#configuration-checklist)
-10. [Troubleshooting](#troubleshooting)
-11. [Extensibility & Customization](#extensibility--customization)
-12. [Upcoming Features / Roadmap](#upcoming-features--roadmap)
-
----
-
-## High-Level Architecture
+## 1) High-Level Architecture
 
 ```
-+-------------------+         +------------------------+
-|  LWC: Bulletin    | <-----> |  Apex: BulletinService |
-|  (container)      |         |  (@AuraEnabled methods)|
-+---------+---------+         +-----------+------------+
-          |                                 |
-          | contains                       queries/mutates
-          v                                 v
-+---------+-----------+        +------------+------------------+
-| Suggestion Box LWC  |        |  Custom Objects                |
-| (table view)        |        |  - Bulletin_Request__c         |
-+---------------------+        |  - Bulletin_Category__c        |
-                               |  - Bulletin_Tag__c             |
-+---------------------+        |  - Bulletin_Comment__c         |
-| Support Console LWC |        +------------+-------------------+
-| (table view, admin  |                     |
-|  owner filter)      |                     | references
-+---------------------+                     v
-                                     Salesforce Standard:
-+---------------------+            - User, Group (Queue),
-| Detail Modal LWC    |              QueueSobject, PermissionSetAssignment
-| (view/edit, comments|
-|  & status/owner)    |
-+---------------------+
+LWC: bulletinBoard (container)
+  ├─ suggestionBox (table)
+  ├─ supportConsole (table)
+  ├─ bulletinDetailModal (view/edit + comments)
+  └─ bulletinSubmitRequest (modal composer)
 
-+---------------------+
-| Submit Request LWC  |
-| (modal composer)    |
-+---------------------+
+Apex: BulletinService (single facade for all reads/writes)
+Objects: Bulletin_Request__c, Bulletin_Category__c, Bulletin_Tag__c, Bulletin_Comment__c
+Std: User, Group(Queue), QueueSobject, PermissionSetAssignment
 ```
 
-**Key ideas**
+Core flow:
 
-* **Container → children data flow.** `bulletinBoard` loads context (who’s admin/user, category list), owns filters, and feeds records into child components.
-* **Single Apex facade.** All server reads/writes go through `BulletinService` for consistency and easy evolution.
-* **Minimal assumptions.** UI enforces who can edit what; server can be tightened later if needed.
-
----
-
-## Data Model
-
-### Custom Objects
-
-* **Bulletin\_Request\_\_c**
-
-  * **Type\_\_c**: `"Suggestion"` or `"Support Request"`
-  * **Status\_\_c**: unified picklist; UI shows the relevant subset per type
-  * **Priority\_\_c** (support use)
-  * **Title\_\_c** (auto-derived from body if blank)
-  * **Description\_\_c** *(Rich Text)* – formatted HTML (includes “Suggested By / Date” header)
-  * **OwnerId**: used for support (user or **Bulletin Support** queue)
-  * Standard audit fields: CreatedBy, CreatedDate, LastModifiedDate
-
-* **Bulletin\_Category\_\_c**
-
-  * **Name**, **Active\_\_c** (drives filter & submit picklists)
-
-* **Bulletin\_Tag\_\_c** (junction)
-
-  * **Request\_\_c** → Bulletin\_Request\_\_c
-  * **Category\_\_c** → Bulletin\_Category\_\_c
-  * **Name** (denormalized label)
-
-* **Bulletin\_Comment\_\_c**
-
-  * **Request\_\_c**, **Body\_\_c**
-  * CreatedBy / CreatedDate (shown in thread)
+* `bulletinBoard` loads context (who’s admin/user, category list), owns filters, calls **BulletinService**, and feeds records to children.
+* Mutations (status, owner, description, comments, create request) all go through **BulletinService**.
 
 ---
 
-## Permissions & Visibility
+## 2) Data Model
 
-### Permission Sets (included in the package)
+**Bulletin\_Request\_\_c**
+
+* `Type__c` = *Suggestion* or *Support Request*
+* `Status__c` (unified picklist; UI shows the relevant subset per type)
+* `Priority__c` (support)
+* `Title__c` (auto-derived from body if blank)
+* `Description__c` *(Rich Text)* — includes a header (“Suggested By / Date”)
+* `OwnerId` — used for support (user or **Bulletin Support** queue)
+* Standard audit fields (CreatedBy, CreatedDate, LastModifiedDate)
+
+**Bulletin\_Category\_\_c**
+
+* `Name`, `Active__c` (drives filters and submit form tag selector)
+
+**Bulletin\_Tag\_\_c** (junction)
+
+* `Request__c` ↔ `Bulletin_Request__c`
+* `Category__c` ↔ `Bulletin_Category__c`
+* `Name` (denormalized label)
+
+**Bulletin\_Comment\_\_c**
+
+* `Request__c`, `Body__c`
+* CreatedBy / CreatedDate (shown in thread)
+
+---
+
+## 3) Permissions & Visibility
+
+**Permission Sets Included**
 
 * **Bulletin Admin**
 
   * Full access to Bulletin objects.
-  * UI: sees **owner filter** (Any/Me/Unassigned/other admins), can **reassign owners**, **change status**, and **edit any description**.
+  * UI: sees **Owner** filter (Any/Me/Unassigned/Admin user), can **reassign owners**, **change status**, and **edit any description**.
 
 * **Bulletin User**
 
   * Create requests, comment, and view all requests.
-  * UI: **Suggestion Box** defaults to “My (CreatedBy)” scope.
-  * Can edit the **description only on their own requests** (in the modal).
-  * Cannot change status/owner.
+  * UI: Suggestion Box defaults to **My (CreatedBy)** scope.
+  * Can edit **description only** on their own requests.
+  * Cannot change status or owner.
 
-### Queues
+**Queue Included**
 
-* **Bulletin Support** (DeveloperName: `Bulletin_Support`)
+* **Bulletin Support** (`Bulletin_Support`) linked to `Bulletin_Request__c` object.
 
-  * Used as the “Unassigned” owner for support tickets.
-  * If not found, the app falls back to any queue tied to `Bulletin_Request__c`.
+  * *Optional:* set a **Queue Email** if you want inbound or notification routing.
 
 ---
 
-## Apex Service (API Surface)
+## 4) Apex Service (API Surface)
 
 `BulletinService.cls` (single facade)
 
-**Listing & retrieval**
+**Reads**
 
-* `listSuggestions(String filtersJson)` → `List<RequestDto>`
-* `listSupportTickets(String filtersJson)` → `List<RequestDto>`
-* `getRequest(Id id)` → `RequestDto`
-* `listComments(Id requestId)` → `List<CommentDto>`
+* `listSuggestions(filtersJson)` → `List<RequestDto>`
+* `listSupportTickets(filtersJson)` → `List<RequestDto>`
+* `getRequest(id)` → `RequestDto`
+* `listComments(requestId)` → `List<CommentDto>`
 * `listActiveCategoryNames()` → `List<String>`
 * `getSupportOwnerOptions()` → `List<UserOption>` (queue + admins)
 * `getBulletinContext()` → `BulletinContext` (isAdmin, adminUsers, bulletinUsers)
 
-**Mutations**
+**Writes**
 
-* `updateStatus(Id id, String status)` → `RequestDto`
-* `updateOwner(Id id, Id ownerId)` → `RequestDto`
-* `updateDescription(Id id, String bodyHtml)` → `RequestDto`
-* `createComment(Id requestId, String body)` → `CommentDto`
-* `createRequest(String type, String title, String bodyHtml, List<Id> categoryIds)` → `RequestDto`
+* `updateStatus(id, status)` → `RequestDto`
+* `updateOwner(id, ownerId)` → `RequestDto`
+* `updateDescription(id, bodyHtml)` → `RequestDto`
+* `createComment(requestId, body)` → `CommentDto`
+* `createRequest(type, title, bodyHtml, categoryIds)` → `RequestDto`
 
-**DTOs (selected fields)**
+**Key fields surfaced**
 
 * `RequestDto`: `id, recordNumber, title, type, status, priority, categories, ownerId, ownerName, createdById, createdByName, createdByTitle, createdDate, updatedDate, commentCount, descriptionHtml`
-* `CommentDto`: `id, authorName, createdOn, body`
-* `UserOption`: `id, name`
-* `BulletinContext`: `isAdmin, adminUsers, bulletinUsers, adminQueueName`
 
 ---
 
-## LWC Components
+## 5) LWC Components
 
-* **`bulletinBoard` (container)**
+* **`bulletinBoard`** (container)
 
-  * Hosts the **brand header** and **tabs** (Suggestion Box / Help Desk).
-  * Owns filters; loads data via Apex; passes to children.
-  * Launches two modals:
+  * Brand header (“**Bulletin** by Delegate”).
+  * Tabs: **Suggestion Box** / **Help Desk**.
+  * Hosts two modals:
 
-    * **`bulletinDetailModal`** (view/edit + comments)
-    * **`bulletinSubmitRequest`** (new request composer; single RTA + categories + type)
+    * **`bulletinDetailModal`** (record view/edit + comments).
+    * **`bulletinSubmitRequest`** (single-RTA composer).
+  * Manages filters and calls Apex; passes data into children.
 
-* **`suggestionBox`**
+* **`suggestionBox`** (table only)
 
-  * Table view of suggestions (CreatedDate DESC).
-  * Filters: search, decision/status, category, **owner scope** (Admins: Any/Me/User; Users: Me).
-  * Emits `querychange`; parent refreshes.
+  * Filters: search, decision (status subset), category, **owner scope**.
+  * Owner scope: **Users → Me** (default). **Admins → Any** (default) or a specific Bulletin User.
 
-* **`supportConsole`**
+* **`supportConsole`** (table + admin owner filter)
 
-  * Table view of support tickets (CreatedDate DESC).
-  * Filters: search, status, category, **owner scope** (Any/Me/Unassigned/User).
-  * Emits `querychange`; parent refreshes.
+  * Filters: search, status, category, **owner scope** (Any/Me/Unassigned/Admin user).
 
 * **`bulletinDetailModal`**
 
-  * Two-column layout: **Description** (rich display + inline edit when allowed) and **Meta/Actions**.
-  * **Status** editor (admins only), **Owner** editor for support (admins only).
-  * **Comments** thread with instant append on post.
-  * Shows **Submitted by** and **Submitter Title** for extra context.
+  * Left: **Description** (rich HTML, inline edit when allowed) + **Comments**.
+  * Right: **Meta/Actions** (Status, Owner for support, categories, facts).
+  * Save banners for instant visual confirmation.
+  * Shows **Submitted By** and **Submitter Title**.
 
 * **`bulletinSubmitRequest`**
 
-  * Modal composer to create a new Suggestion/Support request.
-  * Optional **Title** and a **single Rich Text Area** pre-seeded with helpful section headings.
-  * Category multiselect sourced from active categories.
+  * Modal composer with **Type**, optional **Title**, **single Rich Text Area** (pre-seeded with headings), and **Categories**.
+  * Creates the record and tags in one pass.
 
 ---
 
-## Filtering & Scoping Rules
+## 6) Filtering & Scoping Rules
 
-**Filters payload (`filtersJson`)**
+Filters payload (`filtersJson`):
 
 ```json
 {
@@ -212,101 +164,75 @@ Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It runs
 }
 ```
 
-* **Suggestion Box:** `ownerScope` is applied to **CreatedBy**
+* **Suggestion Box**: `ownerScope` applies to **CreatedBy**
 
-  * Users default to `ME`; Admins default to `ANY`.
-* **Help Desk:** `ownerScope` is applied to **Owner**
+  * Users default to **ME**, Admins default to **ANY**.
+* **Help Desk**: `ownerScope` applies to **Owner**
 
-  * Admins can select `ANY`, `ME`, `UNASSIGNED` (queue), or `USER:<Id>`.
+  * Admins choose: **Any**, **Me**, **Unassigned** (queue), or **User**.
 
-**Sorting:** Both tables default to **CreatedDate DESC**.
-
----
-
-## UI Behavior & UX Notes
-
-* **Unified header:** “Bulletin by Delegate” with strong brand styling.
-* **Tables:** Created & Updated columns; centered comment counts; prominent “Open” buttons.
-* **Detail modal:**
-
-  * Renders `Description__c` HTML (bullets, headings, italics).
-  * **Admins** can edit status/owner/description; **Users** can edit description on their records.
-  * Inline “Saved successfully” feedback after changes.
-  * Comments are reactive; newly posted comments appear immediately.
-* **Submit modal:** Overlays the table; prefilled rich body with suggested sections.
+**Sorting**: Both tables default to **CreatedDate DESC** (no “Created” column shown in the table to reduce clutter).
 
 ---
 
-## Install & Setup (Package Flow)
+## 7) Install & Setup (Package Flow)
 
-1. **Install the Managed (or Unmanaged) Package**
+1. **Install the package.**
+2. **Assign Permission Sets** to users:
 
-   * Use the provided package install link.
-
-2. **Assign Permission Sets**
-
-   * Grant **Bulletin Admin** to administrators/triagers.
-   * Grant **Bulletin User** to end users who will submit and discuss requests.
-
-3. **Create the Support Queue (optional but recommended)**
-
-   * Name: **Bulletin Support** (DeveloperName: `Bulletin_Support`).
-   * Add `Bulletin_Request__c` to the queue’s supported objects.
-   * New support requests will default to this queue as “Unassigned”.
-
-4. **Create Categories** (UI)
-
-   * Add **Bulletin\_Category\_\_c** records and mark **Active\_\_c = true**.
-   * These appear in filter picklists and in the submit form’s tag selector.
-
-5. **Add the App Page**
-
-   * Create or open a **Lightning App Page** and drop the **`bulletinBoard`** LWC onto it.
-   * Make it visible to the intended profiles.
-
-Users can now submit requests; admins can triage from the **Help Desk** tab; everyone can browse the **Suggestion Box**.
+   * **Bulletin Admin** (admins/triagers)
+   * **Bulletin User** (submitters/viewers)
+3. *(Optional)* Open **Bulletin Support** queue and set a **Queue Email** if desired.
+4. **Create Categories** (make sure **Active\_\_c = true**).
+5. **You’re done.** The app’s **home page already includes `bulletinBoard`**—it’s plug-and-play.
 
 ---
 
-## Configuration Checklist
+## 8) Configuration Checklist
 
-* [ ] Package installed.
-* [ ] Permission sets assigned (Bulletin Admin / Bulletin User).
-* [ ] (Recommended) **Bulletin Support** queue created and tied to `Bulletin_Request__c`.
-* [ ] Categories created and set **Active**.
-* [ ] App Page published with **`bulletinBoard`**.
-
----
-
-## Troubleshooting
-
-* **Unassigned filter returns nothing** → Ensure a Queue exists for `Bulletin_Request__c` (prefer `Bulletin_Support`).
-* **Categories missing from filters** → Confirm **Active\_\_c = true** and users have read access.
-* **Users can’t edit description** → They can only edit **their own** requests; admins can edit all.
+* [ ] Package installed
+* [ ] Permission sets assigned
+* [ ] (Optional) Queue Email set on **Bulletin Support**
+* [ ] Categories created & **Active**
 
 ---
 
-## Extensibility & Customization
+## 9) Gotchas & FAQs (Troubleshooting by Design)
 
-* **Status/Decision dictionaries:** Add picklist values to `Status__c`. The UI shows the relevant subset per type.
-* **HTML body template:** Adjust the pre-seeded HTML in the submit LWC to match your brand/tone.
-* **Security hardening:**
+* **“Why can’t I change the status?”**
+  Only **Bulletin Admins** can change status (and owner). Standard users can comment and edit the **description** of **their own** requests.
 
-  * If needed, move to `with sharing` + FLS checks server-side.
-  * Add HTML sanitization if exposing external intake channels.
-* **Files:** Add a related-files composer (ContentVersion + linking).
-* **Notifications:** Platform Events or email on status changes.
-* **Analytics:** Dashboards for cycle time, acceptance rate, category heatmaps.
+* **“Why do I only see my suggestions by default?”**
+  Suggestion Box defaults to **My** (CreatedBy) for regular users—so you can focus on your items. Admins default to **Any** and can switch to specific users.
+
+* **“Why is ‘Unassigned’ empty?”**
+  It lists support tickets **owned by the queue**. If nothing’s shown, there may simply be **no tickets currently owned** by the **Bulletin Support** queue.
+
+* **“Why can’t I upload files in comments?”**
+  File attachments are on the **roadmap** (see below). For now, add files to the record via standard Salesforce file related lists as needed.
+
+* **“Why can’t I @mention someone?”**
+  Mentions are part of upcoming **richer comments**.
+
+* **“Categories aren’t showing in the filter/form.”**
+  Ensure you have **active** `Bulletin_Category__c` records and your profile/perm set grants access.
 
 ---
 
-## Upcoming Features / Roadmap
+## 10) Extensibility & Customization
+
+* **Status/Decision sets:** Add picklist values to `Status__c` and tailor which subsets the UI exposes per type.
+* **HTML template:** Adjust the header and default body in the submit LWC to match your brand/tone.
+
+---
+
+## 11) Roadmap
 
 * **Richer comments**: @mentions and **file uploads**.
-* **Admin Setup Console**: manage categories, permission set assignments, integration settings, and optionally customize **stages** and **labels** for requests—all in one place.
-* **Slack integration**: submit and discuss requests directly from Slack with the same UX.
-* **Jira integration**: deeper cross-system linkage for delivery tracking downstream.
+* **Admin Setup Console**: manage categories, permission set assignments, integration settings, and optionally customize **stages** and **labels**.
+* **Slack integration**: submit & discuss requests directly from Slack with the same UX.
+* **Jira integration**: deeper cross-system linkage for downstream delivery tracking.
 
 ---
 
-**Questions or ideas?** Open an issue or drop a note in the project discussions.
+**Questions or ideas?** Open an issue in the repo.
