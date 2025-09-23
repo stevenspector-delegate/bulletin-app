@@ -4,7 +4,7 @@
       <lightning-input type="search" placeholder="Search suggestions…" value={search} onchange={onSearch}></lightning-input>
       <lightning-combobox label="Decision" value={status} options={decisionOptions} onchange={onDecision}></lightning-combobox>
       <lightning-combobox label="Category" value={category} options={categoryOptions} onchange={onCategory}></lightning-combobox>
-      <lightning-combobox label="Owner" value={ownerScope} options={ownerOptions} onchange={onOwner}></lightning-combobox>
+      <lightning-combobox label="Submitted By" value={ownerScope} options={ownerOptions} onchange={onOwner}></lightning-combobox>
     </div>
     <div class="row right">
       <lightning-button label="New Suggestion" onclick={newSuggestion}></lightning-button>

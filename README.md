@@ -1,4 +1,3 @@
-Perfect—here’s a tightened **README.md** with your updates baked in:
 
 ---
 
