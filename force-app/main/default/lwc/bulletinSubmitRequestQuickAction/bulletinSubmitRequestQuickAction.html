@@ -1,0 +1,66 @@
+<template>
+  <!-- Aura wrapper provides the quick action surface; we handle the inner layout -->
+  <lightning-quick-action-panel header="New Bulletin Request" onclose={handleCancel}>
+    <!-- Scrollable body for the narrow docked panel -->
+    <div class="panel-body slds-p-around_small slds-scrollable_y">
+      <lightning-combobox
+        name="type"
+        label="Type"
+        value={type}
+        options={typeOptions}
+        onchange={onType}>
+      </lightning-combobox>
+
+      <lightning-input
+        name="title"
+        type="text"
+        label="Title (optional)"
+        value={title}
+        onchange={onTitle}>
+      </lightning-input>
+
+      <!-- Compact tag chooser: picklist adds pills (multi-select, but minimal UI) -->
+      <div class="tag-block">
+        <lightning-combobox
+          name="addTag"
+          label="Tags"
+          placeholder="Add a tag…"
+          options={categoryOptions}
+          value={pendingTag}
+          onchange={handlePickTag}>
+        </lightning-combobox>
+
+        <template if:true={selectedCategoryIds.length}>
+          <div class="pillset">
+            <template for:each={selectedCategoryPills} for:item="p">
+              <lightning-pill
+                key={p.value}
+                label={p.label}
+                name={p.value}
+                onremove={removeTag}>
+              </lightning-pill>
+            </template>
+          </div>
+        </template>
+        <div class="hint" if:false={selectedCategoryIds.length}>Choose one or more tags.</div>
+      </div>
+
+      <lightning-input-rich-text
+        class="rte"
+        label="Description"
+        value={bodyHtml}
+        onchange={onBody}>
+      </lightning-input-rich-text>
+    </div>
+
+    <div slot="footer" class="footer">
+      <lightning-button label="Cancel" onclick={handleCancel}></lightning-button>
+      <lightning-button
+        variant="brand"
+        label="Submit"
+        onclick={handleSubmit}
+        disabled={disableSubmit}>
+      </lightning-button>
+    </div>
+  </lightning-quick-action-panel>
+</template>

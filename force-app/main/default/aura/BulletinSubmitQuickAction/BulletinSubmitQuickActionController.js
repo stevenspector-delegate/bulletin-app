@@ -3,7 +3,7 @@
         var toast = $A.get("e.force:showToast");
         $A.get("e.force:closeQuickAction").fire();
     },
-    handleCancel : function(component, event, helper) {
+    handleClose : function(component, event, helper) {
         $A.get("e.force:closeQuickAction").fire();
     }
 })
