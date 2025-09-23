@@ -22,14 +22,14 @@ LWC: bulletinBoard (container)
   └─ bulletinSubmitRequest (modal composer)
 
 Apex: BulletinService (single facade for all reads/writes)
+
 Objects: Bulletin_Request__c, Bulletin_Category__c, Bulletin_Tag__c, Bulletin_Comment__c
 Std: User, Group(Queue), QueueSobject, PermissionSetAssignment
 ```
 
-Core flow:
+Global Action (Lightning Experience):
 
-* `bulletinBoard` loads context (who’s admin/user, category list), owns filters, calls **BulletinService**, and feeds records to children.
-* Mutations (status, owner, description, comments, create request) all go through **BulletinService**.
+* **Included in package**: `BulletinSubmitQuickAction` (Aura wrapper) which launches `bulletinSubmitRequest` as a modal composer from the Global Actions menu.
 
 ---
 
@@ -38,38 +38,27 @@ Core flow:
 **Bulletin\_Request\_\_c**
 
 * `Type__c` = *Suggestion* or *Support Request*
-* `Status__c` (unified picklist; UI shows the relevant subset per type)
+* `Status__c` (unified picklist; UI surfaces the relevant subset per type)
 * `Priority__c` (support)
 * `Title__c` (auto-derived from body if blank)
-* `Description__c` *(Rich Text)* — includes a header (“Suggested By / Date”)
+* `Description__c` *(Rich Text)* — includes a “Suggested By / Date” header
 * `OwnerId` — used for support (user or **Bulletin Support** queue)
-* Standard audit fields (CreatedBy, CreatedDate, LastModifiedDate)
+* Standard audit fields (CreatedBy / CreatedDate / LastModifiedDate)
 
-**Bulletin\_Category\_\_c**
-
-* `Name`, `Active__c` (drives filters and submit form tag selector)
-
-**Bulletin\_Tag\_\_c** (junction)
-
-* `Request__c` ↔ `Bulletin_Request__c`
-* `Category__c` ↔ `Bulletin_Category__c`
-* `Name` (denormalized label)
-
-**Bulletin\_Comment\_\_c**
-
-* `Request__c`, `Body__c`
-* CreatedBy / CreatedDate (shown in thread)
+**Bulletin\_Category\_\_c** – `Name`, `Active__c` (drives filters and submit-form tag selector)
+**Bulletin\_Tag\_\_c** – junction (`Request__c` ↔ `Bulletin_Request__c`, `Category__c` ↔ `Bulletin_Category__c`, + `Name`)
+**Bulletin\_Comment\_\_c** – `Request__c`, `Body__c` (+ CreatedBy / CreatedDate thread)
 
 ---
 
 ## 3) Permissions & Visibility
 
-**Permission Sets Included**
+**Permission Sets**
 
 * **Bulletin Admin**
 
   * Full access to Bulletin objects.
-  * UI: sees **Owner** filter (Any/Me/Unassigned/Admin user), can **reassign owners**, **change status**, and **edit any description**.
+  * UI: sees **Owner** filter (Any / Me / Unassigned / Admin user), can **reassign owners**, **change status**, and **edit any description**.
 
 * **Bulletin User**
 
@@ -78,9 +67,9 @@ Core flow:
   * Can edit **description only** on their own requests.
   * Cannot change status or owner.
 
-**Queue Included**
+**Queue**
 
-* **Bulletin Support** (`Bulletin_Support`) linked to `Bulletin_Request__c` object.
+* **Bulletin Support** (`Bulletin_Support`) is **included** and already linked to `Bulletin_Request__c`.
 
   * *Optional:* set a **Queue Email** if you want inbound or notification routing.
 
@@ -88,7 +77,7 @@ Core flow:
 
 ## 4) Apex Service (API Surface)
 
-`BulletinService.cls` (single facade)
+**`BulletinService.cls`** (single facade)
 
 **Reads**
 
@@ -108,7 +97,7 @@ Core flow:
 * `createComment(requestId, body)` → `CommentDto`
 * `createRequest(type, title, bodyHtml, categoryIds)` → `RequestDto`
 
-**Key fields surfaced**
+**Key DTO fields**
 
 * `RequestDto`: `id, recordNumber, title, type, status, priority, categories, ownerId, ownerName, createdById, createdByName, createdByTitle, createdDate, updatedDate, commentCount, descriptionHtml`
 
@@ -126,14 +115,14 @@ Core flow:
     * **`bulletinSubmitRequest`** (single-RTA composer).
   * Manages filters and calls Apex; passes data into children.
 
-* **`suggestionBox`** (table only)
+* **`suggestionBox`** (table)
 
   * Filters: search, decision (status subset), category, **owner scope**.
   * Owner scope: **Users → Me** (default). **Admins → Any** (default) or a specific Bulletin User.
 
-* **`supportConsole`** (table + admin owner filter)
+* **`supportConsole`** (table)
 
-  * Filters: search, status, category, **owner scope** (Any/Me/Unassigned/Admin user).
+  * Filters: search, status, category, **owner scope** (Any / Me / Unassigned / Admin user).
 
 * **`bulletinDetailModal`**
 
@@ -151,7 +140,7 @@ Core flow:
 
 ## 6) Filtering & Scoping Rules
 
-Filters payload (`filtersJson`):
+`filtersJson`:
 
 ```json
 {
@@ -164,35 +153,42 @@ Filters payload (`filtersJson`):
 ```
 
 * **Suggestion Box**: `ownerScope` applies to **CreatedBy**
-
-  * Users default to **ME**, Admins default to **ANY**.
+  Users default to **ME**, Admins default to **ANY**.
 * **Help Desk**: `ownerScope` applies to **Owner**
+  Admins choose: **Any**, **Me**, **Unassigned** (queue), or **User**.
 
-  * Admins choose: **Any**, **Me**, **Unassigned** (queue), or **User**.
-
-**Sorting**: Both tables default to **CreatedDate DESC** (no “Created” column shown in the table to reduce clutter).
+**Sorting**: Both tables default to **CreatedDate DESC** (no “Created” column, to keep the view clean).
 
 ---
 
-## 7) Install & Setup (Package Flow)
+## 7) Install & Setup
 
 1. **Install the package.**
 2. **Assign Permission Sets** to users:
 
    * **Bulletin Admin** (admins/triagers)
    * **Bulletin User** (submitters/viewers)
-3. *(Optional)* Open **Bulletin Support** queue and set a **Queue Email** if desired.
-4. **Create Categories** (make sure **Active\_\_c = true**).
-5. **You’re done.** The app’s **home page already includes `bulletinBoard`**—it’s plug-and-play.
+3. *(Optional)* Set a **Queue Email** on **Bulletin Support** queue.
+4. **Create Categories** (ensure **Active\_\_c = true**).
+5. **You’re done.** The app’s **home page already includes `bulletinBoard`** — it’s plug-and-play.
+
+### Global Action: “New Bulletin Request” (Included)
+
+The action is packaged. Just add it to the publisher layout:
+
+* Go to **Setup → Publisher Layouts → Global Publisher Layout**.
+* **Add “New Bulletin Request”** to the layout and **Save**.
+
+Users will now see the Bulletin composer in the **Global Actions** menu.
 
 ---
 
 ## 8) Configuration Checklist
 
-* [ ] Package installed
 * [ ] Permission sets assigned
 * [ ] (Optional) Queue Email set on **Bulletin Support**
 * [ ] Categories created & **Active**
+* [ ] Global Action “New Bulletin Request” added to **Global Publisher Layout**
 
 ---
 
@@ -202,19 +198,16 @@ Filters payload (`filtersJson`):
   Only **Bulletin Admins** can change status (and owner). Standard users can comment and edit the **description** of **their own** requests.
 
 * **“Why do I only see my suggestions by default?”**
-  Suggestion Box defaults to **My** (CreatedBy) for regular users—so you can focus on your items. Admins default to **Any** and can switch to specific users.
+  Suggestion Box defaults to **My** (CreatedBy) for regular users so you can focus on your items. Admins default to **Any** and can switch to specific users.
 
 * **“Why is ‘Unassigned’ empty?”**
-  It lists support tickets **owned by the queue**. If nothing’s shown, there may simply be **no tickets currently owned** by the **Bulletin Support** queue.
+  It shows support tickets **owned by the queue**. If nothing’s shown, there may simply be **no tickets currently owned** by **Bulletin Support**.
 
-* **“Why can’t I upload files in comments?”**
-  File attachments are on the **roadmap** (see below). For now, add files to the record via standard Salesforce file related lists as needed.
-
-* **“Why can’t I @mention someone?”**
-  Mentions are part of upcoming **richer comments**.
+* **“Why can’t I upload files or @mention?”**
+  Richer comments (files and @mentions) are on the **roadmap**.
 
 * **“Categories aren’t showing in the filter/form.”**
-  Ensure you have **active** `Bulletin_Category__c` records and your profile/perm set grants access.
+  Ensure you have **active** `Bulletin_Category__c` records and the right access.
 
 ---
 
@@ -222,15 +215,16 @@ Filters payload (`filtersJson`):
 
 * **Status/Decision sets:** Add picklist values to `Status__c` and tailor which subsets the UI exposes per type.
 * **HTML template:** Adjust the header and default body in the submit LWC to match your brand/tone.
+* **Owner scope options:** Admin list and queue are sourced from Permission Sets and the queue relationship—easy to extend.
 
 ---
 
 ## 11) Roadmap
 
-* **Richer comments**: @mentions and **file uploads**.
-* **Admin Setup Console**: manage categories, permission set assignments, integration settings, and optionally customize **stages** and **labels**.
-* **Slack integration**: submit & discuss requests directly from Slack with the same UX.
-* **Jira integration**: deeper cross-system linkage for downstream delivery tracking.
+* **Richer comments:** @mentions and **file uploads**.
+* **Admin Setup Console:** categories, permission set assignments, integration settings, optional **stage/label** customization.
+* **Slack integration:** submit & discuss requests directly from Slack with the same UX.
+* **Jira integration:** deeper cross-system linkage for downstream delivery tracking.
 
 ---
 
