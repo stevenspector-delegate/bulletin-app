@@ -1,56 +1,192 @@
 import { LightningElement, api, track } from 'lwc';
+import userId from '@salesforce/user/Id';
+
+import updateStatus from '@salesforce/apex/BulletinService.updateStatus';
+import updateDescription from '@salesforce/apex/BulletinService.updateDescription';
+import updateOwner from '@salesforce/apex/BulletinService.updateOwner';
+import getSupportOwnerOptions from '@salesforce/apex/BulletinService.getSupportOwnerOptions';
+import getBulletinContext from '@salesforce/apex/BulletinService.getBulletinContext';
 
 export default class BulletinDetailModal extends LightningElement {
   @api open = false;
-  @api record;         // RequestDto
-  @api comments = [];  // CommentDto[]
-  @api statusSaved = false; // toggled by parent when updateStatus succeeds
 
-  @track newComment = '';
-  _status = '';
-  _prevCommentCount = 0;
+  // record (init on change)
+  _record;
+  @api
+  set record(val){
+    this._record = val || null;
+    this._initForRecord();
+  }
+  get record(){ return this._record; }
 
-  renderedCallback(){
-    // Inject rich-text Description
-    if(this.record && this.template){
-      const el = this.template.querySelector('.desc');
-      if(el){ el.innerHTML = this.record.descriptionHtml || ''; }
-    }
-    // Auto-scroll comments when new items arrive
-    const count = (this.comments || []).length;
-    if(count !== this._prevCommentCount){
-      const thr = this.template.querySelector('.thread');
-      if(thr){ thr.scrollTop = thr.scrollHeight; }
-      this._prevCommentCount = count;
-    }
+  // role context
+  @api statusSaved = false;
+  @track isAdmin = false;
+
+  // comments (precompute "when")
+  _comments = [];
+  @track commentsView = [];
+  @api
+  set comments(value){
+    this._comments = value || [];
+    this.commentsView = this._comments.map(c => ({
+      ...c,
+      when: this._formatWhen(c.createdOn)
+    }));
+  }
+  get comments(){ return this._comments; }
+
+  // description editing
+  @track editingDesc = false;
+  @track editableHtml = '';
+  @track descSaved = false;
+  rteFormats = ['bold','italic','underline','strike','list','link','image','code','header','color','background','align','clean'];
+
+  // state (status/decision)
+  stateLabel = 'Status';
+  @track stateOptions = [];
+  @track stateValue;
+
+  // owner (support/admins)
+  @track ownerOptions = [];
+  @track ownerId;
+  @track ownerSaved = false;
+  _ownerOptsLoadedFor;
+
+  // comment composer
+  composer = '';
+
+  connectedCallback(){
+    getBulletinContext()
+      .then(ctx => {
+        this.isAdmin = !!ctx?.isAdmin;
+        this._initForRecord();
+      })
+      .catch(() => { this.isAdmin = false; });
   }
 
+  // derived UI
   get titleText(){
-    return this.record ? `${this.record.recordNumber} · ${this.record.title}` : 'Record Detail';
+    return `${this.record?.recordNumber || ''} · ${this.record?.title || 'Record Detail'}`;
   }
-  get statusLabel(){ return this.record?.type === 'Suggestion' ? 'Decision' : 'Status'; }
-  get statusOptions(){
-    const isSug = this.record?.type === 'Suggestion';
-    const vals = isSug ? ['Under Review','Accepted','Rejected','Implemented']
-                       : ['New','In Review','In Progress','Done','Closed'];
-    return vals.map(v => ({ label:v, value:v }));
+  get commentCount(){ return (this.commentsView || []).length; }
+  get canEditDescription(){
+    if (!this.record) return false;
+    return this.isAdmin || this.record.createdById === userId;
   }
-  get statusValue(){ return this._status || this.record?.status; }
+  get showOwner(){
+    return this.isAdmin && this.record && this.record.type === 'Support Request';
+  }
+  get showOwnerReadOnly(){
+    return !this.isAdmin && this.record && this.record.type === 'Support Request' && this.record.ownerName;
+  }
+  get categoriesText(){
+    const arr = this.record?.categories || [];
+    return Array.isArray(arr) ? arr.join(', ') : '';
+  }
 
-  onStatus(e){ this._status = e.detail.value; }
-  save(){
-    this.dispatchEvent(new CustomEvent('savestatus', { detail: { id: this.record.id, status: this.statusValue }}));
+  // init per record
+  async _initForRecord(){
+    if (!this.record) return;
+
+    this.editingDesc = false;
+    this.descSaved = false;
+    this.ownerSaved = false;
+
+    if (this.record.type === 'Support Request') {
+      this.stateLabel = 'Status';
+      this.stateOptions = [
+        { label: 'New', value: 'New' },
+        { label: 'In Review', value: 'In Review' },
+        { label: 'In Progress', value: 'In Progress' },
+        { label: 'Done', value: 'Done' },
+        { label: 'Closed', value: 'Closed' }
+      ];
+    } else {
+      this.stateLabel = 'Decision';
+      this.stateOptions = [
+        { label: 'Under Review', value: 'Under Review' },
+        { label: 'Accepted', value: 'Accepted' },
+        { label: 'Rejected', value: 'Rejected' },
+        { label: 'Implemented', value: 'Implemented' }
+      ];
+    }
+    this.stateValue = this.record.status;
+
+    // owner options for admins (support only)
+    this.ownerId = this.record.ownerId;
+    if (this.isAdmin && this.record.type === 'Support Request') {
+      if (this._ownerOptsLoadedFor !== this.record.id) {
+        try{
+          const list = await getSupportOwnerOptions();
+          this.ownerOptions = (list || []).map(x => ({ label: x.name, value: x.id }));
+          this._ownerOptsLoadedFor = this.record.id;
+        }catch(_e){ /* ignore */ }
+      }
+    } else {
+      this.ownerOptions = [];
+      this._ownerOptsLoadedFor = undefined;
+    }
   }
 
-  onComment(e){ this.newComment = e.detail.value; }
+  // description edit
+  startEditDesc(){ this.editingDesc = true; this.editableHtml = this.record?.descriptionHtml || ''; }
+  cancelDesc(){ this.editingDesc = false; this.editableHtml = ''; }
+  onDescRteChange(e){ this.editableHtml = e.detail.value || ''; }
+  async saveDesc(){
+    try{
+      const rec = await updateDescription({ id: this.record.id, bodyHtml: this.editableHtml });
+      this._record = { ...this.record, descriptionHtml: rec.descriptionHtml };
+      this.editingDesc = false;
+      this.descSaved = true;
+      setTimeout(() => this.descSaved = false, 1600);
+      this.dispatchEvent(new CustomEvent('recordupdated'));
+    }catch(_e){}
+  }
+
+  // state
+  onStateChange(e){ this.stateValue = e.detail.value; }
+  saveState(){
+    this.dispatchEvent(new CustomEvent('savestatus', {
+      detail: { id: this.record.id, status: this.stateValue }
+    }));
+  }
+
+  // owner
+  onOwnerChange(e){ this.ownerId = e.detail.value; }
+  async saveOwner(){
+    try{
+      const rec = await updateOwner({ id: this.record.id, ownerId: this.ownerId });
+      this._record = { ...this.record, ownerId: rec.ownerId, ownerName: rec.ownerName };
+      this.ownerSaved = true;
+      setTimeout(() => this.ownerSaved = false, 1600);
+      this.dispatchEvent(new CustomEvent('recordupdated'));
+    }catch(_e){}
+  }
+
+  // comments
+  onComposer(e){ this.composer = e.detail.value || ''; }
   post(){
-    const body = (this.newComment || '').trim();
-    if(!body) return;
-    this.dispatchEvent(new CustomEvent('postcomment', { detail: { id: this.record.id, body } }));
-    this.newComment = '';
+    const text = (this.composer || '').trim();
+    if (!text) return;
+    this.dispatchEvent(new CustomEvent('postcomment', {
+      detail: { id: this.record.id, body: text }
+    }));
+    this.composer = '';
   }
 
+  // utils
+  _formatWhen(dt){
+    try {
+      const d = new Date(dt);
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+      }).format(d);
+    } catch(_) { return ''; }
+  }
+
+  // modal helpers
   close(){ this.dispatchEvent(new CustomEvent('close')); }
-  closeIfBackdrop(e){ if(e.target.classList.contains('backdrop')) this.close(); }
+  backdropClose(e){ if (e.target.classList.contains('bb-backdrop')) this.close(); }
   stop(e){ e.stopPropagation(); }
 }

@@ -1,38 +1,35 @@
 import { LightningElement, track, api } from 'lwc';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
-
 import listActiveCategories from '@salesforce/apex/BulletinService.listActiveCategories';
 import createRequest from '@salesforce/apex/BulletinService.createRequest';
 
 const DEFAULT_TEMPLATE = `
   <h4 style="margin:0 0 6px 0;color:#16325C;font-weight:600;">Description</h4>
-  <p><em>What outcome are we chasing? Provide the concrete objective and key details.</em></p>
+  <ul><li><em>Briefly describe the outcome you want and the concrete details.</em></li></ul>
 
   <h4 style="margin:12px 0 6px 0;color:#16325C;font-weight:600;">Rationale / Context</h4>
-  <p><em>Why is this important? Who is impacted? Any time sensitivity?</em></p>
+  <ul><li><em>Why this matters, who’s impacted, any time sensitivity.</em></li></ul>
 
   <h4 style="margin:12px 0 6px 0;color:#16325C;font-weight:600;">Additional Notes</h4>
-  <p><em>Steps already tried, examples, links, screenshots, etc.</em></p>
+  <ul><li><em>Steps tried, examples, links, screenshots, etc.</em></li></ul>
 `.trim();
 
 export default class BulletinSubmitRequest extends LightningElement {
-  @api initialType; // << new (optional)
+  @api initialType;
   @track type = 'Suggestion';
   @track title = '';
   @track bodyHtml = '';
   @track selectedCategoryIds = [];
-
   @track categoryOptions = [];
+  @track saving = false;
+
   typeOptions = [
     { label: 'Suggestion', value: 'Suggestion' },
     { label: 'Support Request', value: 'Support Request' }
   ];
-
-  @track saving = false;
   formats = ['bold','italic','underline','strike','list','link','image','code','header','color','background','align','clean'];
 
   connectedCallback(){
-    // Apply initial type if provided by parent
     if (this.initialType && (this.initialType === 'Suggestion' || this.initialType === 'Support Request')) {
       this.type = this.initialType;
     }
@@ -44,7 +41,7 @@ export default class BulletinSubmitRequest extends LightningElement {
     try{
       const res = await listActiveCategories();
       this.categoryOptions = (res || []).map(r => ({ label: r.name, value: r.id }));
-    } catch(e){
+    }catch(e){
       this.toast('Error loading categories', e?.body?.message || e?.message || 'Unknown error', 'error');
     }
   }
@@ -83,21 +80,18 @@ export default class BulletinSubmitRequest extends LightningElement {
       });
       this.toast('Request submitted', `${rec?.recordNumber || ''} created`, 'success');
       this.dispatchEvent(new CustomEvent('success', { detail: { id: rec?.id } }));
-      // optional: reset if used standalone
+      // Reset if used standalone
       this.type = this.initialType || 'Suggestion';
       this.title = '';
       this.bodyHtml = DEFAULT_TEMPLATE;
       this.selectedCategoryIds = [];
-    } catch(e){
+    }catch(e){
       this.toast('Submit failed', e?.body?.message || e?.message || 'Unknown error', 'error');
-    } finally{
+    }finally{
       this.saving = false;
     }
   }
 
   cancel(){ this.dispatchEvent(new CustomEvent('cancel')); }
-
-  toast(title, message, variant){
-    this.dispatchEvent(new ShowToastEvent({ title, message, variant }));
-  }
+  toast(title, message, variant){ this.dispatchEvent(new ShowToastEvent({ title, message, variant })); }
 }

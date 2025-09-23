@@ -1,67 +1,139 @@
 <template>
   <template if:true={open}>
-    <section class="backdrop" onclick={closeIfBackdrop}>
-      <div class="modal" onclick={stop}>
-        <header class="head">
-          <h2>{titleText}</h2>
+    <section role="dialog" aria-modal="true" class="bb-backdrop" onclick={backdropClose}>
+      <div class="bb-modal" onclick={stop}>
+        <header class="bb-header">
+          <h2 class="bb-title">{titleText}</h2>
           <lightning-button-icon icon-name="utility:close" alternative-text="Close" onclick={close}></lightning-button-icon>
         </header>
 
-        <!-- DESCRIPTION / META pane (fixed height; inner scrolling) -->
-        <div class="main">
-          <section class="rte">
-            <h3>Description</h3>
-            <div lwc:dom="manual" class="desc"></div>
-          </section>
+        <div class="bb-body">
+          <div class="bb-main">
+            <!-- Description -->
+            <article class="desc-card">
+              <div class="desc-head">
+                <h3>Description</h3>
+                <template if:true={canEditDescription}>
+                  <div class="desc-actions">
+                    <template if:false={editingDesc}>
+                      <lightning-button variant="neutral" label="Edit" onclick={startEditDesc}></lightning-button>
+                    </template>
+                    <template if:true={editingDesc}>
+                      <lightning-button variant="brand" label="Save" onclick={saveDesc} class="mr8"></lightning-button>
+                      <lightning-button variant="neutral" label="Cancel" onclick={cancelDesc}></lightning-button>
+                    </template>
+                  </div>
+                </template>
+              </div>
 
-          <aside class="meta">
-            <div class="statusRow">
-              <lightning-combobox
-                name="status"
-                label={statusLabel}
-                value={statusValue}
-                options={statusOptions}
-                onchange={onStatus}>
-              </lightning-combobox>
-              <lightning-button label="Save" variant="brand" onclick={save}></lightning-button>
+              <template if:false={editingDesc}>
+                <lightning-formatted-rich-text class="bb-html" value={record.descriptionHtml}></lightning-formatted-rich-text>
+                <template if:true={descSaved}>
+                  <div class="saved-banner">Saved successfully</div>
+                </template>
+              </template>
+
+              <template if:true={editingDesc}>
+                <lightning-input-rich-text
+                  class="bb-rte"
+                  value={editableHtml}
+                  formats={rteFormats}
+                  onchange={onDescRteChange}>
+                </lightning-input-rich-text>
+              </template>
+            </article>
+
+            <!-- Comments -->
+            <section class="comments">
+              <header class="c-head">
+                <h3>Comments</h3>
+                <span class="muted">{commentCount}</span>
+              </header>
+              <div class="thread">
+                <template for:each={commentsView} for:item="c">
+                  <div key={c.id} class="bubble">
+                    <div class="meta"><strong>{c.authorName}</strong> <span>{c.when}</span></div>
+                    <div class="body">{c.body}</div>
+                  </div>
+                </template>
+              </div>
+              <div class="composer">
+                <lightning-textarea
+                  class="c-input"
+                  value={composer}
+                  onchange={onComposer}
+                  placeholder="Write a comment…">
+                </lightning-textarea>
+                <lightning-button variant="brand" label="Post" onclick={post}></lightning-button>
+              </div>
+            </section>
+          </div>
+
+          <!-- Sidebar -->
+          <aside class="bb-aside">
+            <!-- Status / Decision -->
+            <div class="meta-block">
+              <label class="meta-label">{stateLabel}</label>
+
+              <!-- Admins: editable -->
+              <template if:true={isAdmin}>
+                <div class="inline-row">
+                  <lightning-combobox
+                    value={stateValue}
+                    options={stateOptions}
+                    onchange={onStateChange}>
+                  </lightning-combobox>
+                  <lightning-button label="Save" onclick={saveState}></lightning-button>
+                </div>
+                <template if:true={statusSaved}>
+                  <div class="saved-inline">Saved successfully</div>
+                </template>
+              </template>
+
+              <!-- Bulletin Users: read-only -->
+              <template if:false={isAdmin}>
+                <div class="pill-readonly">{stateValue}</div>
+              </template>
             </div>
 
-            <template if:true={statusSaved}>
-              <div class="save-ok" role="status">Saved successfully</div>
+            <!-- Owner (Support only) -->
+            <!-- Admins: editable -->
+            <template if:true={showOwner}>
+              <div class="meta-block">
+                <label class="meta-label">Owner</label>
+                <div class="inline-row">
+                  <lightning-combobox
+                    value={ownerId}
+                    options={ownerOptions}
+                    placeholder="Select owner"
+                    onchange={onOwnerChange}>
+                  </lightning-combobox>
+                  <lightning-button label="Save" onclick={saveOwner}></lightning-button>
+                </div>
+                <template if:true={ownerSaved}>
+                  <div class="saved-inline">Saved successfully</div>
+                </template>
+              </div>
             </template>
+
+            <!-- Bulletin Users: read-only Owner pill for Support requests -->
+            <template if:true={showOwnerReadOnly}>
+              <div class="meta-block">
+                <label class="meta-label">Owner</label>
+                <div class="pill-readonly">{record.ownerName}</div>
+              </div>
+            </template>
+
+            <!-- Quick facts -->
+            <div class="facts">
+              <div><span class="k">Type</span><span class="v">{record.type}</span></div>
+              <div><span class="k">Categories</span><span class="v">{categoriesText}</span></div>
+              <div><span class="k">Submitted</span><span class="v">{record.createdDate} · {record.createdByName}</span></div>
+            </div>
           </aside>
         </div>
 
-        <!-- COMMENTS pane (fixed height; inner scrolling) -->
-        <section class="comments">
-          <header class="c-head"><h3>Comments</h3></header>
-
-          <div class="thread">
-            <template for:each={comments} for:item="c">
-              <div key={c.id} class="comment">
-                <div class="content">
-                  <div class="row">
-                    <span class="name">{c.authorName}</span>
-                    <span class="dot">•</span>
-                    <lightning-formatted-date-time
-                      value={c.createdOn}
-                      year="numeric" month="short" day="2-digit" hour="2-digit" minute="2-digit"
-                      class="when">
-                    </lightning-formatted-date-time>
-                  </div>
-                  <div class="text">{c.body}</div>
-                </div>
-              </div>
-            </template>
-          </div>
-
-          <div class="composer">
-            <lightning-textarea value={newComment} onchange={onComment} placeholder="Write a comment…"></lightning-textarea>
-            <lightning-button label="Post" onclick={post}></lightning-button>
-          </div>
-        </section>
-
-        <footer class="foot">
+        <footer class="bb-footer">
           <lightning-button label="Close" onclick={close}></lightning-button>
         </footer>
       </div>

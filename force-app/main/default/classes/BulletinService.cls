@@ -17,7 +17,9 @@ public without sharing class BulletinService {
         @AuraEnabled public String status;
         @AuraEnabled public String priority;
         @AuraEnabled public List<String> categories;
+        @AuraEnabled public Id ownerId;
         @AuraEnabled public String ownerName;
+        @AuraEnabled public Id createdById;
         @AuraEnabled public String createdByName;
         @AuraEnabled public String createdDate;
         @AuraEnabled public String updatedDate;
@@ -93,6 +95,24 @@ public without sharing class BulletinService {
         return ctx;
     }
 
+    /* Owner options (Support only): Queue + Admin users */
+    @AuraEnabled(cacheable=true)
+    public static List<UserOption> getSupportOwnerOptions(){
+        List<UserOption> out = new List<UserOption>();
+        Id qid = findSupportQueueId();
+        if (qid != null){
+            String qname = [SELECT Name FROM Group WHERE Id = :qid LIMIT 1].Name;
+            out.add(new UserOption(qid, qname)); // "Unassigned" path
+        }
+        // Admins
+        for (PermissionSetAssignment psa : [
+            SELECT AssigneeId, Assignee.Name
+            FROM PermissionSetAssignment
+            WHERE PermissionSet.Name = 'Bulletin_Admin' OR PermissionSet.Label = 'Bulletin Admin'
+        ]) out.add(new UserOption(psa.AssigneeId, psa.Assignee.Name));
+        return out;
+    }
+
     /* ======= Categories for filters & form ======= */
     @AuraEnabled(cacheable=true)
     public static List<CategoryOption> listActiveCategories(){
@@ -141,7 +161,6 @@ public without sharing class BulletinService {
             whereParts.add('(Title__c LIKE \'' + searchLike + '\' OR Description__c LIKE \'' + searchLike + '\')');
         }
 
-        // Scoping (kept to your current semantics)
         if (supportView) {
             if (!isAdmin) {
                 whereParts.add('CreatedById = \'' + uid + '\'');
@@ -150,11 +169,8 @@ public without sharing class BulletinService {
                     whereParts.add('OwnerId = \'' + uid + '\'');
                 } else if (scope == 'UNASSIGNED') {
                     Set<Id> qids = getRequestQueueIds();
-                    if (!qids.isEmpty()) {
-                        whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
-                    } else {
-                        whereParts.add('OwnerId = \'000000000000000AAA\''); // impossible fallback
-                    }
+                    if (!qids.isEmpty()) whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
+                    else whereParts.add('OwnerId = \'000000000000000AAA\'');
                 } else if (scope.startsWith('USER:')) {
                     whereParts.add('OwnerId = \'' + String.escapeSingleQuotes(scope.substring(5)) + '\'');
                 }
@@ -174,7 +190,7 @@ public without sharing class BulletinService {
 
         String soql =
             'SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c, ' +
-            '       Description__c, Owner.Name, CreatedBy.Name, CreatedDate, LastModifiedDate ' +
+            '       Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedDate, LastModifiedDate ' +
             'FROM Bulletin_Request__c ' +
             'WHERE ' + String.join(whereParts, ' AND ') + ' ' +
             'ORDER BY LastModifiedDate DESC ' +
@@ -186,7 +202,6 @@ public without sharing class BulletinService {
         Set<Id> reqIds = new Set<Id>();
         for (Bulletin_Request__c r : rows) reqIds.add(r.Id);
 
-        // Categories per request
         Map<Id, List<String>> catsByReq = new Map<Id, List<String>>();
         for (Bulletin_Tag__c t : [
             SELECT Request__c, Category__r.Name
@@ -197,7 +212,6 @@ public without sharing class BulletinService {
             if (t.Category__r != null) catsByReq.get(t.Request__c).add(t.Category__r.Name);
         }
 
-        // Comment counts
         Map<Id, Integer> cmtMap = new Map<Id, Integer>();
         for (AggregateResult ar : [
             SELECT Request__c rid, COUNT(Id) cnt
@@ -206,7 +220,6 @@ public without sharing class BulletinService {
             GROUP BY Request__c
         ]) cmtMap.put((Id)ar.get('rid'), (Integer)ar.get('cnt'));
 
-        // Map to DTOs
         List<RequestDto> out = new List<RequestDto>();
         for (Bulletin_Request__c r : rows){
             out.add(toDto(
@@ -223,7 +236,7 @@ public without sharing class BulletinService {
     public static RequestDto getRequest(Id id){
         Bulletin_Request__c r = [
             SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c,
-                   Description__c, Owner.Name, CreatedBy.Name, CreatedDate, LastModifiedDate
+                   Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedDate, LastModifiedDate
             FROM Bulletin_Request__c
             WHERE Id = :id
             LIMIT 1
@@ -243,6 +256,20 @@ public without sharing class BulletinService {
     public static RequestDto updateStatus(Id id, String status){
         if (String.isBlank(status)) throw new AuraHandledException('Status required');
         update new Bulletin_Request__c(Id = id, Status__c = status);
+        return getRequest(id);
+    }
+
+    @AuraEnabled
+    public static RequestDto updateDescription(Id id, String bodyHtml){
+        if (String.isBlank(bodyHtml)) throw new AuraHandledException('Description body required');
+        update new Bulletin_Request__c(Id = id, Description__c = bodyHtml);
+        return getRequest(id);
+    }
+
+    @AuraEnabled
+    public static RequestDto updateOwner(Id id, Id ownerId){
+        if (ownerId == null) throw new AuraHandledException('Owner required');
+        update new Bulletin_Request__c(Id = id, OwnerId = ownerId);
         return getRequest(id);
     }
 
@@ -289,11 +316,9 @@ public without sharing class BulletinService {
     /* ==================== Create (single RTE form) ==================== */
     @AuraEnabled
     public static RequestDto createRequest(String type, String title, String bodyHtml, List<Id> categoryIds){
-        // Normalize type
         String t = (String.isBlank(type) ? 'Suggestion' : type.trim());
         if (t != 'Suggestion' && t != 'Support Request') t = 'Suggestion';
 
-        // Title: if provided, use it; else derive from body
         String finalTitle;
         if (!String.isBlank(title)) {
             finalTitle = title.trim();
@@ -303,7 +328,6 @@ public without sharing class BulletinService {
             finalTitle = (compact.length() > 28) ? compact.substring(0,25) + '...' : (String.isBlank(compact) ? 'New request' : compact);
         }
 
-        // Header (Suggested By / Date) + hr
         String who = UserInfo.getFirstName() + ' ' + UserInfo.getLastName();
         String dateStr = Datetime.now().format('MMM d, yyyy');
         String header =
@@ -315,7 +339,7 @@ public without sharing class BulletinService {
 
         String wrapperStart = '<div style="font-family: Arial,Helvetica,sans-serif; line-height:1.5; font-size:14px; padding:12px 14px; border:1px solid #e5e7eb; border-radius:8px;">';
         String wrapperEnd   = '</div>';
-        String safeBody     = (bodyHtml == null ? '' : bodyHtml); // LIRTE output
+        String safeBody     = (bodyHtml == null ? '' : bodyHtml);
         String finalHtml    = wrapperStart + header + safeBody + wrapperEnd;
 
         Bulletin_Request__c req = new Bulletin_Request__c();
@@ -364,7 +388,9 @@ public without sharing class BulletinService {
         d.status = r.Status__c;
         d.priority = r.Priority__c;
         d.categories = (cats != null ? cats : new List<String>());
+        d.ownerId = r.OwnerId;
         d.ownerName = (r.Owner != null ? r.Owner.Name : null);
+        d.createdById = r.CreatedById;
         d.createdByName = (r.CreatedBy != null ? r.CreatedBy.Name : null);
         d.createdDate = fmt(r.CreatedDate);
         d.updatedDate = fmt(r.LastModifiedDate);
@@ -373,11 +399,11 @@ public without sharing class BulletinService {
         return d;
     }
 
-    // HTML escape helper (fallback for orgs without EncodingUtil.escapeHtml4)
+    // HTML escape helper
     private static String htmlEscape(String s){
         if (s == null) return null;
         String out = s;
-        out = out.replaceAll('&', '&amp;');   // replace ampersand first
+        out = out.replaceAll('&', '&amp;');
         out = out.replaceAll('<', '&lt;');
         out = out.replaceAll('>', '&gt;');
         out = out.replaceAll('"', '&quot;');
