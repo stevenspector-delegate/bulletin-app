@@ -125,11 +125,17 @@
             </template>
 
             <!-- Quick facts -->
-            <div class="facts">
-              <div><span class="k">Type</span><span class="v">{record.type}</span></div>
-              <div><span class="k">Categories</span><span class="v">{categoriesText}</span></div>
-              <div><span class="k">Submitted</span><span class="v">{record.createdDate} · {record.createdByName}</span></div>
+          <div class="facts">
+            <div><span class="k">Type</span><span class="v">{record.type}</span></div>
+            <div><span class="k">Categories</span><span class="v">{categoriesText}</span></div>
+            <div>
+              <span class="k">Submitted by</span>
+              <span class="v">
+                {record.createdDate} · {record.createdByName}
+              </span>
             </div>
+            <div if:true={record.createdByTitle}><span class="k">User Title</span><span class="v">{record.createdByTitle}</span></div>
+          </div>
           </aside>
         </div>
 

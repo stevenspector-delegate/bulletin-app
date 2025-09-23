@@ -21,6 +21,7 @@ public without sharing class BulletinService {
         @AuraEnabled public String ownerName;
         @AuraEnabled public Id createdById;
         @AuraEnabled public String createdByName;
+        @AuraEnabled public String createdByTitle; // <-- add this line
         @AuraEnabled public String createdDate;
         @AuraEnabled public String updatedDate;
         @AuraEnabled public Integer commentCount;
@@ -190,7 +191,7 @@ public without sharing class BulletinService {
 
         String soql =
             'SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c, ' +
-            '       Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedDate, LastModifiedDate ' +
+            'Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate ' +
             'FROM Bulletin_Request__c ' +
             'WHERE ' + String.join(whereParts, ' AND ') + ' ' +
             'ORDER BY CreatedDate DESC ' +
@@ -236,7 +237,7 @@ public without sharing class BulletinService {
     public static RequestDto getRequest(Id id){
         Bulletin_Request__c r = [
             SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c,
-                   Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedDate, LastModifiedDate
+                Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate
             FROM Bulletin_Request__c
             WHERE Id = :id
             LIMIT 1
@@ -392,6 +393,7 @@ public without sharing class BulletinService {
         d.ownerName = (r.Owner != null ? r.Owner.Name : null);
         d.createdById = r.CreatedById;
         d.createdByName = (r.CreatedBy != null ? r.CreatedBy.Name : null);
+        d.createdByTitle = (r.CreatedBy != null ? r.CreatedBy.Title : null);
         d.createdDate = fmt(r.CreatedDate);
         d.updatedDate = fmt(r.LastModifiedDate);
         d.commentCount = (ccount == null ? 0 : ccount);

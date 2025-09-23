@@ -22,9 +22,6 @@
     <label>Bulletin</label>
     <navType>Standard</navType>
     <tabs>standard-home</tabs>
-    <tabs>Bulletin_MVP</tabs>
-    <tabs>Bulletin_Request__c</tabs>
-    <tabs>Bulletin_Category__c</tabs>
     <uiType>Lightning</uiType>
     <utilityBar>Bulletin_UtilityBar</utilityBar>
 </CustomApplication>
