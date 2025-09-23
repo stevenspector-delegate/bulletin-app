@@ -193,7 +193,7 @@ public without sharing class BulletinService {
             '       Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedDate, LastModifiedDate ' +
             'FROM Bulletin_Request__c ' +
             'WHERE ' + String.join(whereParts, ' AND ') + ' ' +
-            'ORDER BY LastModifiedDate DESC ' +
+            'ORDER BY CreatedDate DESC ' +
             'LIMIT ' + String.valueOf(lim);
 
         List<Bulletin_Request__c> rows = (List<Bulletin_Request__c>) Database.query(soql);
