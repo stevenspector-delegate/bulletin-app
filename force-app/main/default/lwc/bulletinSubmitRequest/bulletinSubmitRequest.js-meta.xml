@@ -4,8 +4,16 @@
   <isExposed>true</isExposed>
   <masterLabel>Bulletin – Submit Request</masterLabel>
   <targets>
+    <target>lightning__GlobalAction</target>
     <target>lightning__AppPage</target>
     <target>lightning__RecordPage</target>
     <target>lightning__HomePage</target>
   </targets>
+
+  <targetConfigs>
+    <targetConfig targets="lightning__GlobalAction">
+        <actionType>ScreenAction</actionType>
+    </targetConfig>
+  </targetConfigs>
+
 </LightningComponentBundle>

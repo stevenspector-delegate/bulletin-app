@@ -1,0 +1,5 @@
+<aura:component implements="force:lightningQuickAction,flexipage:availableForAllPageTypes"
+                access="global">
+    <c:bulletinSubmitRequest onsuccess="{!c.handleSuccess}"
+                             oncancel="{!c.handleCancel}"/>
+</aura:component>
