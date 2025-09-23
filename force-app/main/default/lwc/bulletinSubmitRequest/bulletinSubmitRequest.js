@@ -79,7 +79,7 @@ export default class BulletinSubmitRequest extends LightningElement {
         categoryIds: this.selectedCategoryIds
       });
       this.toast('Request submitted', `${rec?.recordNumber || ''} created`, 'success');
-      this.dispatchEvent(new CustomEvent('success', { detail: { id: rec?.id } }));
+      this.dispatchEvent(new CustomEvent('success', { detail: { id: rec?.id }, bubbles: true, composed: true }));
       // Reset if used standalone
       this.type = this.initialType || 'Suggestion';
       this.title = '';
@@ -92,6 +92,10 @@ export default class BulletinSubmitRequest extends LightningElement {
     }
   }
 
-  cancel(){ this.dispatchEvent(new CustomEvent('cancel')); }
-  toast(title, message, variant){ this.dispatchEvent(new ShowToastEvent({ title, message, variant })); }
+cancel() {
+  this.dispatchEvent(new CustomEvent('cancel', { bubbles: true, composed: true }));
+}  
+
+toast(title, message, variant){ this.dispatchEvent(new ShowToastEvent({ title, message, variant })); }
+
 }

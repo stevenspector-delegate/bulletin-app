@@ -1,3 +1,5 @@
-<aura:component implements="force:lightningQuickAction,flexipage:availableForAllPageTypes" access="global">
-    <c:bulletinSubmitRequestQuickAction onclose="{!c.handleClose}"/>
+<aura:component implements="force:lightningQuickAction,flexipage:availableForAllPageTypes">
+    <aura:attribute name="overlayRef" type="Object"/>
+    <lightning:overlayLibrary aura:id="overlayLib" />
+    <aura:handler name="init" value="{!this}" action="{!c.doInit}" />
 </aura:component>

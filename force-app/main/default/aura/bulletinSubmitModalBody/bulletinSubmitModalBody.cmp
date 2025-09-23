@@ -1,0 +1,6 @@
+<aura:component>
+    <aura:attribute name="overlayRef" type="Object"/>
+    <c:bulletinSubmitRequest
+        oncancel="{!c.handleCancel}"
+        onsuccess="{!c.handleSuccess}"/>
+</aura:component>
