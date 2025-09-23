@@ -39,12 +39,13 @@ public without sharing class BulletinService {
         @AuraEnabled public Boolean isAdmin;
         @AuraEnabled public List<UserOption> adminUsers;
         @AuraEnabled public List<UserOption> bulletinUsers;
-        @AuraEnabled public String adminQueueName;
+        @AuraEnabled public String adminQueueName; // informational; not used for filtering anymore
     }
 
     /* ==================== Entry Points ==================== */
     @AuraEnabled
     public static List<RequestDto> listSuggestions(String filtersJson){
+        // Keep strict type to your data model
         return queryRequests(new Set<String>{ 'Suggestion' }, parse(filtersJson), /*supportView*/ false);
     }
 
@@ -84,6 +85,7 @@ public without sharing class BulletinService {
                 ctx.bulletinUsers.add(new UserOption(u.Id, u.Name));
         }
 
+        // Kept for reference; filtering no longer depends on a single queue name.
         ctx.adminQueueName = 'Bulletin_Admin_Queue';
         return ctx;
     }
@@ -124,7 +126,7 @@ public without sharing class BulletinService {
             whereParts.add('(Title__c LIKE \'' + searchLike + '\' OR Description__c LIKE \'' + searchLike + '\')');
         }
 
-        // Scoping (kept consistent with your original semantics)
+        // Scoping (kept to your original meaning of "my")
         if (supportView) {
             // Non-admins: only tickets they CREATED
             if (!isAdmin) {
@@ -133,8 +135,12 @@ public without sharing class BulletinService {
                 if (scope == 'ME') {
                     whereParts.add('OwnerId = \'' + uid + '\'');
                 } else if (scope == 'UNASSIGNED') {
-                    Id qid = getAdminQueueId();
-                    whereParts.add(qid != null ? 'OwnerId = \'' + qid + '\'' : 'OwnerId = \'000000000000000AAA\'');
+                    Set<Id> qids = getRequestQueueIds(); // <- all queues that can own Bulletin_Request__c
+                    if (!qids.isEmpty()) {
+                        whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
+                    } else {
+                        whereParts.add('OwnerId = \'000000000000000AAA\''); // impossible fallback
+                    }
                 } else if (scope.startsWith('USER:')) {
                     whereParts.add('OwnerId = \'' + String.escapeSingleQuotes(scope.substring(5)) + '\'');
                 }
@@ -292,6 +298,23 @@ public without sharing class BulletinService {
         return d;
     }
 
+    // ----- Queue helpers (for "UNASSIGNED") -----
+    private static Set<Id> REQUEST_QUEUE_IDS;
+    private static Set<Id> getRequestQueueIds(){
+        if (REQUEST_QUEUE_IDS != null) return REQUEST_QUEUE_IDS;
+        REQUEST_QUEUE_IDS = new Set<Id>();
+        for (QueueSobject qs : [
+            SELECT QueueId FROM QueueSobject
+            WHERE SObjectType = 'Bulletin_Request__c'
+        ]) REQUEST_QUEUE_IDS.add(qs.QueueId);
+        return REQUEST_QUEUE_IDS;
+    }
+    private static String toIdCsv(Set<Id> ids){
+        List<String> parts = new List<String>();
+        for (Id i : ids) parts.add('\'' + String.valueOf(i) + '\'');
+        return String.join(parts, ',');
+    }
+
     // ----- Admin helpers -----
     private static Boolean hasBulletinAdmin(){
         try {
@@ -303,22 +326,5 @@ public without sharing class BulletinService {
             ];
             return cnt > 0;
         } catch (Exception e) { return false; }
-    }
-
-    private static Id ADMIN_QUEUE_ID;
-    private static Id getAdminQueueId(){
-        if (ADMIN_QUEUE_ID != null) return ADMIN_QUEUE_ID;
-        try {
-            Group g = [
-                SELECT Id FROM Group
-                WHERE Type = 'Queue'
-                AND (Name = 'Bulletin_Admin_Queue' OR DeveloperName = 'Bulletin_Admin_Queue')
-                LIMIT 1
-            ];
-            ADMIN_QUEUE_ID = g.Id;
-            return ADMIN_QUEUE_ID;
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

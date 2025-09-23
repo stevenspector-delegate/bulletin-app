@@ -19,6 +19,22 @@
         </connector>
     </assignments>
     <assignments>
+        <name>Assign_vRequest_to_Queue</name>
+        <label>Assign vRequest to Queue</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignmentItems>
+            <assignToReference>vRequest.OwnerId</assignToReference>
+            <operator>Assign</operator>
+            <value>
+                <elementReference>Get_Bulletin_Support_Queue.Id</elementReference>
+            </value>
+        </assignmentItems>
+        <connector>
+            <targetReference>Set_vRequest_Fields</targetReference>
+        </connector>
+    </assignments>
+    <assignments>
         <name>Construct_Tag_Record</name>
         <label>Construct Tag Record</label>
         <locationX>0</locationX>
@@ -113,6 +129,31 @@
             <stringValue>{&quot;location&quot;:&quot;top&quot;,&quot;type&quot;:&quot;simple&quot;}</stringValue>
         </value>
     </customProperties>
+    <decisions>
+        <name>Support_Request</name>
+        <label>Support Request?</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <defaultConnector>
+            <targetReference>Set_vRequest_Fields</targetReference>
+        </defaultConnector>
+        <defaultConnectorLabel>No</defaultConnectorLabel>
+        <rules>
+            <name>Yes_0</name>
+            <conditionLogic>and</conditionLogic>
+            <conditions>
+                <leftValueReference>Type</leftValueReference>
+                <operator>EqualTo</operator>
+                <rightValue>
+                    <elementReference>Choice_SupportRequest</elementReference>
+                </rightValue>
+            </conditions>
+            <connector>
+                <targetReference>Get_Bulletin_Support_Queue</targetReference>
+            </connector>
+            <label>Yes</label>
+        </rules>
+    </decisions>
     <decisions>
         <name>Was_Category_Selected</name>
         <label>Was Category Selected?</label>
@@ -225,6 +266,34 @@ IF(NOT(ISBLANK({!Anything_Else})),&quot;&lt;div style=&apos;margin:10px 0 0 0;&a
         <inputReference>vTagsToCreate</inputReference>
     </recordCreates>
     <recordLookups>
+        <name>Get_Bulletin_Support_Queue</name>
+        <label>Get Bulletin Support Queue</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
+        <connector>
+            <targetReference>Assign_vRequest_to_Queue</targetReference>
+        </connector>
+        <filterLogic>and</filterLogic>
+        <filters>
+            <field>Type</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Queue</stringValue>
+            </value>
+        </filters>
+        <filters>
+            <field>DeveloperName</field>
+            <operator>EqualTo</operator>
+            <value>
+                <stringValue>Bulletin_Support</stringValue>
+            </value>
+        </filters>
+        <getFirstRecordOnly>true</getFirstRecordOnly>
+        <object>Group</object>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </recordLookups>
+    <recordLookups>
         <name>Get_Categories</name>
         <label>Get Categories</label>
         <locationX>0</locationX>
@@ -257,7 +326,7 @@ IF(NOT(ISBLANK({!Anything_Else})),&quot;&lt;div style=&apos;margin:10px 0 0 0;&a
         <allowFinish>true</allowFinish>
         <allowPause>false</allowPause>
         <connector>
-            <targetReference>Set_vRequest_Fields</targetReference>
+            <targetReference>Support_Request</targetReference>
         </connector>
         <fields>
             <name>Form_Screen_Section1</name>
