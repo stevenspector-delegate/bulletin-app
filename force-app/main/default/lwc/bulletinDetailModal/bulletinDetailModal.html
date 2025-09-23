@@ -1,0 +1,70 @@
+<template>
+  <template if:true={open}>
+    <section class="backdrop" onclick={closeIfBackdrop}>
+      <div class="modal" onclick={stop}>
+        <header class="head">
+          <h2>{titleText}</h2>
+          <lightning-button-icon icon-name="utility:close" alternative-text="Close" onclick={close}></lightning-button-icon>
+        </header>
+
+        <!-- DESCRIPTION / META pane (fixed height; inner scrolling) -->
+        <div class="main">
+          <section class="rte">
+            <h3>Description</h3>
+            <div lwc:dom="manual" class="desc"></div>
+          </section>
+
+          <aside class="meta">
+            <div class="statusRow">
+              <lightning-combobox
+                name="status"
+                label={statusLabel}
+                value={statusValue}
+                options={statusOptions}
+                onchange={onStatus}>
+              </lightning-combobox>
+              <lightning-button label="Save" variant="brand" onclick={save}></lightning-button>
+            </div>
+
+            <template if:true={statusSaved}>
+              <div class="save-ok" role="status">Saved successfully</div>
+            </template>
+          </aside>
+        </div>
+
+        <!-- COMMENTS pane (fixed height; inner scrolling) -->
+        <section class="comments">
+          <header class="c-head"><h3>Comments</h3></header>
+
+          <div class="thread">
+            <template for:each={comments} for:item="c">
+              <div key={c.id} class="comment">
+                <div class="content">
+                  <div class="row">
+                    <span class="name">{c.authorName}</span>
+                    <span class="dot">•</span>
+                    <lightning-formatted-date-time
+                      value={c.createdOn}
+                      year="numeric" month="short" day="2-digit" hour="2-digit" minute="2-digit"
+                      class="when">
+                    </lightning-formatted-date-time>
+                  </div>
+                  <div class="text">{c.body}</div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="composer">
+            <lightning-textarea value={newComment} onchange={onComment} placeholder="Write a comment…"></lightning-textarea>
+            <lightning-button label="Post" onclick={post}></lightning-button>
+          </div>
+        </section>
+
+        <footer class="foot">
+          <lightning-button label="Close" onclick={close}></lightning-button>
+        </footer>
+      </div>
+    </section>
+  </template>
+</template>

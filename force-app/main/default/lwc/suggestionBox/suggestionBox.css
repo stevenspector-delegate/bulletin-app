@@ -1,0 +1,5 @@
+.toolbar .row{display:flex;gap:.75rem;align-items:center;justify-content:flex-start;flex-wrap:wrap}
+.toolbar .row.right{justify-content:flex-end}
+.toolbar{
+  background:#fff;border:1px solid #e5e7eb;border-radius:12px;
+}

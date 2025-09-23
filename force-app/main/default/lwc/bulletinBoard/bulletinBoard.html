@@ -1,0 +1,66 @@
+<template>
+  <div class="appbar slds-p-horizontal_medium slds-p-vertical_small">
+    <div class="brand">
+      <span class="title">Bulletin</span>
+      <span class="by">by Delegate</span>
+    </div>
+    <div class="tabs">
+      <button class={suggestionTabClass} onclick={showSuggestions}>Suggestion Box</button>
+      <button class={supportTabClass} onclick={showSupport}>Help Desk</button>
+    </div>
+  </div>
+
+  <div class="surface">
+    <template if:true={isSuggestions}>
+      <c-suggestion-box
+        records={suggestions}
+        loading={loadingSuggestions}
+        categories={categoryOptions}
+        users={bulletinUsers}
+        is-admin={isAdmin}
+        owner-scope={lastSuggestionFilters.ownerScope}
+        onquerychange={onSuggestionsQuery}
+        onopenrecord={openDetail}
+        onnewsuggestion={launchNewSuggestion}>
+      </c-suggestion-box>
+    </template>
+
+    <template if:true={isSupport}>
+      <c-support-console
+        records={tickets}
+        loading={loadingSupport}
+        categories={categoryOptions}
+        is-admin={isAdmin}
+        admins={adminUsers}
+        onquerychange={onSupportQuery}
+        onopenrecord={openDetail}
+        onnewticket={launchNewTicket}>
+      </c-support-console>
+    </template>
+  </div>
+
+  <c-bulletin-detail-modal
+      open={detailOpen}
+      record={activeRecord}
+      comments={activeComments}
+      status-saved={statusSaved}
+      onclose={closeDetail}
+      onsavestatus={handleSaveStatus}
+      onpostcomment={handlePostComment}>
+  </c-bulletin-detail-modal>
+
+  <!-- Flow modal -->
+  <template if:true={flowOpen}>
+    <section class="bb-backdrop" onclick={closeFlowIfBackdrop}>
+      <div class="bb-modal" onclick={stop}>
+        <header class="bb-head">
+          <h2>{flowTitle}</h2>
+          <lightning-button-icon icon-name="utility:close" alternative-text="Close" onclick={closeFlow}></lightning-button-icon>
+        </header>
+        <div class="bb-body">
+          <lightning-flow key={flowKey} flow-api-name={flowApiName} onstatuschange={handleFlowStatus}></lightning-flow>
+        </div>
+      </div>
+    </section>
+  </template>
+</template>

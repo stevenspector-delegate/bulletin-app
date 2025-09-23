@@ -1,0 +1,48 @@
+<template>
+  <div class="toolbar slds-p-around_small">
+    <div class="row">
+      <lightning-input type="search" placeholder="Search support tickets…" value={search} onchange={onSearch}></lightning-input>
+      <lightning-combobox label="Status" value={status} options={statusOptions} onchange={onStatus}></lightning-combobox>
+      <lightning-combobox label="Category" value={category} options={categoryOptions} onchange={onCategory}></lightning-combobox>
+
+      <!-- ADMIN-ONLY Owner filter -->
+      <template if:true={isAdmin}>
+        <lightning-combobox label="Owner" value={ownerScope} options={ownerOptions} onchange={onOwner}></lightning-combobox>
+      </template>
+    </div>
+
+    <div class="row right">
+      <lightning-button-group>
+        <lightning-button label="Table" variant={tableVariant} onclick={showTable}></lightning-button>
+        <lightning-button label="Kanban" variant={kanbanVariant} onclick={showKanban}></lightning-button>
+      </lightning-button-group>
+      <lightning-button label="New Ticket" onclick={newTicket}></lightning-button>
+    </div>
+  </div>
+
+  <template if:true={loading}>
+    <lightning-spinner size="small"></lightning-spinner>
+  </template>
+
+  <template if:true={showingTable}>
+    <lightning-datatable key-field="id" data={rowsForTable} columns={columns} hide-checkbox-column onrowaction={handleRowAction}></lightning-datatable>
+  </template>
+
+  <template if:true={showingKanban}>
+    <div class="kanban">
+      <template for:each={columnsMap} for:item="col">
+        <section key={col.key} class="col">
+          <header>{col.label} <span class="count">{col.items.length}</span></header>
+          <main>
+            <template for:each={col.items} for:item="r">
+              <article key={r.id} class="card" data-id={r.id} onclick={openRecord}>
+                <header><h3>{r.title}</h3></header>
+                <div class="meta"><span>{r.categoryText}</span></div>
+              </article>
+            </template>
+          </main>
+        </section>
+      </template>
+    </div>
+  </template>
+</template>

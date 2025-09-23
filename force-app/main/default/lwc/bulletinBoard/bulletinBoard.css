@@ -1,0 +1,12 @@
+:host {
+  display: block;
+  background: #f7f8fb;   /* your surface color */
+  min-height: 80vh;      /* ensures it fills the viewport area */
+}
+
+.appbar{background:#0b1b2b;color:#fff;display:flex;align-items:center;justify-content:space-between}
+.brand .title{font-weight:800;margin-right:8px}
+.brand .by{opacity:.8;font-weight:600}
+.tabs{display:flex;gap:0}
+.tab{background:#ffffff22;border:none;color:#fff;padding:.5rem .9rem;cursor:pointer;font-weight:700}
+.tab.active{background:#fff;color:#0b1b2b;border-radius:8px}

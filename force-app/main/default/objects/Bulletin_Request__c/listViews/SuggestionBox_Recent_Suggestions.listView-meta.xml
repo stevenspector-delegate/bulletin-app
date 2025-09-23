@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListView xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SuggestionBox_Recent_Suggestions</fullName>
+    <columns>Description__c</columns>
+    <filterScope>Mine</filterScope>
+    <label>Recent Suggestions</label>
+</ListView>
