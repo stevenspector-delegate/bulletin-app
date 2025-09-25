@@ -1,46 +1,62 @@
 import { LightningElement, api, track } from 'lwc';
+import listActiveStatusOptions from '@salesforce/apex/BulletinService.listActiveStatusOptions';
 
 export default class SuggestionBox extends LightningElement {
   @api records = [];
   @api loading = false;
   @api categories = [];
-  @api users = [];   // [{id,name}]
+  @api users = [];
   @api isAdmin = false;
 
-  // Parent-driven owner scope (e.g., 'ANY' for admins on load, 'ME' for users)
+  // Owner scope (public)
   _ownerScope = 'ME';
   @api
   get ownerScope() { return this._ownerScope; }
   set ownerScope(val) {
-    // Only update if different to avoid redundant querychange loops
     const next = val || (this.isAdmin ? 'ANY' : 'ME');
-    if (next !== this._ownerScope) this._ownerScope = next;
+    this._ownerScope = next;
   }
 
+  // Presets / state
   @track search = '';
   @track status = '';
   @track category = '';
 
+  @api
+  get presetStatus() { return this.status; }
+  set presetStatus(v) { this.status = v || ''; }
+
+  @api
+  get presetCategory() { return this.category; }
+  set presetCategory(v) { this.category = v || ''; }
+
+  @api
+  get presetSearch() { return this.search; }
+  set presetSearch(v) { this.search = v || ''; }
+
+  @track decisionOptions = [{ label: 'Any', value: '' }];
+
   connectedCallback(){
-    // Safety default; parent will set ownerScope shortly after mount
-    if(this.isAdmin) this._ownerScope = 'ANY';
+    if(this.isAdmin) this._ownerScope = this._ownerScope || 'ANY';
+    this.loadDecisionOptions();
   }
 
-  get decisionOptions(){
-    return [
-      { label:'Any', value:'' },
-      { label:'Under Review', value:'Under Review' },
-      { label:'Accepted', value:'Accepted' },
-      { label:'Rejected', value:'Rejected' },
-      { label:'Implemented', value:'Implemented' }
-    ];
+  async loadDecisionOptions(){
+    try {
+      const rows = await listActiveStatusOptions({ type: 'Suggestion' });
+      const opts = (rows || []).map(r => ({ label: r.name, value: r.id }));
+      this.decisionOptions = [{ label: 'Any', value: '' }, ...opts];
+    } catch(_e) {
+      this.decisionOptions = [{ label: 'Any', value: '' }];
+    }
   }
+
   get categoryOptions(){
     const base = [{ label:'All', value:'' }];
     return base.concat(this.categories || []);
   }
+
   get ownerOptions(){
-    // Suggestions filter by Submitter (CreatedBy)
     const base = [
       { label:'Any', value:'ANY' },
       { label:'Me', value:'ME' }
@@ -60,10 +76,20 @@ export default class SuggestionBox extends LightningElement {
     }));
   }
 
+  // Inputs
   onSearch(e){ this.search = e.target.value; this.notify(); }
   onDecision(e){ this.status = e.detail.value; this.notify(); }
   onCategory(e){ this.category = e.detail.value; this.notify(); }
   onOwner(e){ this._ownerScope = e.detail.value; this.notify(); }
+
+  // Reset to defaults
+  resetFilters(){
+    this.search = '';
+    this.status = '';
+    this.category = '';
+    this._ownerScope = this.isAdmin ? 'ANY' : 'ME';
+    this.notify();
+  }
 
   // Table
   get columns(){

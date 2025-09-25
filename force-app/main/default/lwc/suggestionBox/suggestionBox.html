@@ -1,13 +1,53 @@
 <template>
   <div class="toolbar slds-p-around_small">
+
     <div class="row">
-      <lightning-input type="search" placeholder="Search suggestions…" value={search} onchange={onSearch}></lightning-input>
-      <lightning-combobox label="Decision" value={status} options={decisionOptions} onchange={onDecision}></lightning-combobox>
-      <lightning-combobox label="Category" value={category} options={categoryOptions} onchange={onCategory}></lightning-combobox>
-      <lightning-combobox label="Submitted By" value={ownerScope} options={ownerOptions} onchange={onOwner}></lightning-combobox>
+      
+      <div class="slds-p-top_x-small">
+        <lightning-input
+          type="search"
+          placeholder="Search suggestions…"
+          value={search}
+          onchange={onSearch}>
+        </lightning-input>
+      </div>
+
+      <lightning-combobox
+        label="Decision"
+        value={status}
+        options={decisionOptions}
+        onchange={onDecision}>
+      </lightning-combobox>
+
+      <lightning-combobox
+        label="Category"
+        value={category}
+        options={categoryOptions}
+        onchange={onCategory}>
+      </lightning-combobox>
+
+      <lightning-combobox
+        label="Submitted By"
+        value={ownerScope}
+        options={ownerOptions}
+        onchange={onOwner}>
+      </lightning-combobox>
+
+      <div class="slds-p-top_large">
+        <lightning-button
+          label="Reset Filters"
+          onclick={resetFilters}
+          variant="base">
+        </lightning-button>
+      </div>
+
     </div>
+
     <div class="row right">
-      <lightning-button label="New Suggestion" onclick={newSuggestion}></lightning-button>
+      <lightning-button
+        label="New Suggestion"
+        onclick={newSuggestion}>
+      </lightning-button>
     </div>
   </div>
 
@@ -16,10 +56,10 @@
   </template>
 
   <lightning-datatable
-      key-field="id"
-      data={rowsForTable}
-      columns={columns}
-      hide-checkbox-column
-      onrowaction={handleRowAction}>
+    key-field="id"
+    data={rowsForTable}
+    columns={columns}
+    hide-checkbox-column
+    onrowaction={handleRowAction}>
   </lightning-datatable>
 </template>

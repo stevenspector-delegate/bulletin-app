@@ -8,6 +8,9 @@ import createComment from '@salesforce/apex/BulletinService.createComment';
 import getBulletinContext from '@salesforce/apex/BulletinService.getBulletinContext';
 import listActiveCategoryNames from '@salesforce/apex/BulletinService.listActiveCategoryNames';
 
+const SUG_KEY = 'bb_filters_suggestion';
+const SUP_KEY = 'bb_filters_support';
+
 export default class BulletinBoard extends LightningElement {
   @track isSuggestions = true;
   @track isSupport = false;
@@ -36,9 +39,9 @@ export default class BulletinBoard extends LightningElement {
   @track flowTitle = 'New Request';
   @track initialType = 'Suggestion';
 
-  // last filters
-  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME' }; 
-  lastSupportFilters    = { pageSize: 50, ownerScope: 'ANY' };
+  // last filters (persisted per tab)
+  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME', search: '', status: '', categoryName: '' };
+  lastSupportFilters    = { pageSize: 50, ownerScope: 'ANY', search: '', status: '', categoryName: '' };
 
   async connectedCallback() {
     try {
@@ -47,22 +50,56 @@ export default class BulletinBoard extends LightningElement {
       this.adminUsers = ctx?.adminUsers || [];
       this.bulletinUsers = ctx?.bulletinUsers || [];
 
+      // Defaults depend on role
       this.lastSuggestionFilters.ownerScope = this.isAdmin ? 'ANY' : 'ME';
+      this.lastSupportFilters.ownerScope    = this.isAdmin ? 'ANY' : 'ANY';
+
+      // Restore persisted filters (if present)
+      this.restoreFilters();
 
       const cats = await listActiveCategoryNames();
       this.categoryOptions = (cats || []).map(n => ({ label: n, value: n }));
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error(e);
     }
 
+    // Initial fetch for the default tab
     this.refreshSuggestions(this.lastSuggestionFilters);
+  }
+
+  restoreFilters(){
+    try {
+      const rawSug = window.localStorage.getItem(SUG_KEY);
+      if (rawSug) {
+        const f = JSON.parse(rawSug);
+        this.lastSuggestionFilters = { ...this.lastSuggestionFilters, ...f, pageSize: 50 };
+      }
+    } catch(_) {}
+    try {
+      const rawSup = window.localStorage.getItem(SUP_KEY);
+      if (rawSup) {
+        const f = JSON.parse(rawSup);
+        this.lastSupportFilters = { ...this.lastSupportFilters, ...f, pageSize: 50 };
+      }
+    } catch(_) {}
+  }
+  persistFilters(){
+    try { window.localStorage.setItem(SUG_KEY, JSON.stringify(this.lastSuggestionFilters)); } catch(_) {}
+    try { window.localStorage.setItem(SUP_KEY, JSON.stringify(this.lastSupportFilters)); } catch(_) {}
   }
 
   // Tabs
   get suggestionTabClass(){ return `tab ${this.isSuggestions?'active':''}`; }
   get supportTabClass(){ return `tab ${this.isSupport?'active':''}`; }
-  showSuggestions = () => { this.isSuggestions = true; this.isSupport = false; this.refreshSuggestions(this.lastSuggestionFilters); }
-  showSupport     = () => { this.isSuggestions = false; this.isSupport = true; this.refreshSupport(this.lastSupportFilters); }
+  showSuggestions = () => {
+    this.isSuggestions = true; this.isSupport = false;
+    this.refreshSuggestions(this.lastSuggestionFilters);
+  }
+  showSupport     = () => {
+    this.isSuggestions = false; this.isSupport = true;
+    this.refreshSupport(this.lastSupportFilters);
+  }
 
   // Fetchers
   async refreshSuggestions(filters = {}) {
@@ -74,9 +111,7 @@ export default class BulletinBoard extends LightningElement {
         number: r.recordNumber,
         categoryText: (r.categories || []).join(', ')
       }));
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     this.loadingSuggestions = false;
   }
 
@@ -89,9 +124,7 @@ export default class BulletinBoard extends LightningElement {
         number: r.recordNumber,
         categoryText: (r.categories || []).join(', ')
       }));
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     this.loadingSupport = false;
   }
 
@@ -105,6 +138,7 @@ export default class BulletinBoard extends LightningElement {
       ownerScope: f.ownerScope || (this.isAdmin ? 'ANY' : 'ME'),
       pageSize: 50
     };
+    this.persistFilters();
     this.refreshSuggestions(this.lastSuggestionFilters);
   }
 
@@ -117,6 +151,7 @@ export default class BulletinBoard extends LightningElement {
       ownerScope: this.isAdmin ? (f.ownerScope || 'ANY') : 'ANY',
       pageSize: 50
     };
+    this.persistFilters();
     this.refreshSupport(this.lastSupportFilters);
   }
 

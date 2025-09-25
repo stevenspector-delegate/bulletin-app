@@ -1,11 +1,11 @@
 import { LightningElement, api, track } from 'lwc';
 import userId from '@salesforce/user/Id';
 
-import updateStatus from '@salesforce/apex/BulletinService.updateStatus';
 import updateDescription from '@salesforce/apex/BulletinService.updateDescription';
 import updateOwner from '@salesforce/apex/BulletinService.updateOwner';
 import getSupportOwnerOptions from '@salesforce/apex/BulletinService.getSupportOwnerOptions';
 import getBulletinContext from '@salesforce/apex/BulletinService.getBulletinContext';
+import listActiveStatusOptions from '@salesforce/apex/BulletinService.listActiveStatusOptions';
 
 export default class BulletinDetailModal extends LightningElement {
   @api open = false;
@@ -23,7 +23,7 @@ export default class BulletinDetailModal extends LightningElement {
   @api statusSaved = false;
   @track isAdmin = false;
 
-  // comments (precompute "when")
+  // comments
   _comments = [];
   @track commentsView = [];
   @api
@@ -44,10 +44,13 @@ export default class BulletinDetailModal extends LightningElement {
 
   // state (status/decision)
   stateLabel = 'Status';
-  @track stateOptions = [];
-  @track stateValue;
+  @track stateOptions = [];       
+  @track stateValue;            
+  get disableSave(){
+    return !this.isAdmin || !this.stateValue;
+  }
 
-  // owner (support/admins)
+  // owner 
   @track ownerOptions = [];
   @track ownerId;
   @track ownerSaved = false;
@@ -65,7 +68,7 @@ export default class BulletinDetailModal extends LightningElement {
       .catch(() => { this.isAdmin = false; });
   }
 
-  // derived UI
+  // UI getters
   get titleText(){
     return `${this.record?.recordNumber || ''} · ${this.record?.title || 'Record Detail'}`;
   }
@@ -93,25 +96,18 @@ export default class BulletinDetailModal extends LightningElement {
     this.descSaved = false;
     this.ownerSaved = false;
 
-    if (this.record.type === 'Support Request') {
-      this.stateLabel = 'Status';
-      this.stateOptions = [
-        { label: 'New', value: 'New' },
-        { label: 'In Review', value: 'In Review' },
-        { label: 'In Progress', value: 'In Progress' },
-        { label: 'Done', value: 'Done' },
-        { label: 'Closed', value: 'Closed' }
-      ];
-    } else {
-      this.stateLabel = 'Decision';
-      this.stateOptions = [
-        { label: 'Under Review', value: 'Under Review' },
-        { label: 'Accepted', value: 'Accepted' },
-        { label: 'Rejected', value: 'Rejected' },
-        { label: 'Implemented', value: 'Implemented' }
-      ];
+    // Label per type
+    this.stateLabel = (this.record.type === 'Support Request') ? 'Status' : 'Decision';
+
+    try {
+      const rows = await listActiveStatusOptions({ type: this.record.type });
+      this.stateOptions = (rows || []).map(r => ({ label: r.name, value: r.id }));
+      const match = this.stateOptions.find(o => o.label === this.record.status);
+      this.stateValue = match ? match.value : null;
+    } catch(_e) {
+      this.stateOptions = [];
+      this.stateValue = null;
     }
-    this.stateValue = this.record.status;
 
     // owner options for admins (support only)
     this.ownerId = this.record.ownerId;
@@ -146,6 +142,7 @@ export default class BulletinDetailModal extends LightningElement {
 
   // state
   onStateChange(e){ this.stateValue = e.detail.value; }
+
   saveState(){
     this.dispatchEvent(new CustomEvent('savestatus', {
       detail: { id: this.record.id, status: this.stateValue }

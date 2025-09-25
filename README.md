@@ -8,7 +8,7 @@ A lightweight, Salesforce-native bulletin board that unifies two workflows:
 * **Suggestion Box** – collect & browse product ideas
 * **Help Desk** – triage & resolve internal support tickets
 
-Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It uses standard Salesforce features (Queues, Permission Sets) and a small set of custom objects for requests, categories, tags, and comments.
+Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It uses standard Salesforce features (Queues, Permission Sets) and a small set of custom objects for requests, categories, tags, comments, and statuses. 
 
 ---
 
@@ -17,8 +17,8 @@ Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It uses
 ```
 LWC (ui)
   ├─ bulletinBoard              ← container & header
-  ├─ suggestionBox              ← table view (suggestions)
-  ├─ supportConsole             ← table view (support)
+  ├─ suggestionBox              ← list (suggestions)
+  ├─ supportConsole             ← list (support; table/kanban)
   ├─ bulletinDetailModal        ← record view/edit + comments
   └─ bulletinSubmitRequest      ← “new request” form (RTA + tags)
 
@@ -30,85 +30,98 @@ Apex
   └─ BulletinService            ← single facade for all reads/writes
 
 Custom Objects
-  Bulletin_Request__c, Bulletin_Category__c, Bulletin_Tag__c, Bulletin_Comment__c
+  Bulletin_Request__c, Bulletin_Category__c, Bulletin_Tag__c, Bulletin_Comment__c,
+  Bulletin_Status__c
 
 Standard
   User, Group(Queue), QueueSobject, PermissionSetAssignment
 ```
 
-> **Removed/legacy**: `bulletinSubmitRequestModal` and `bulletinSubmitRequestQuickAction` LWCs were deleted and are no longer used.
+(Architecture matches current code & components.) 
 
 ---
 
 ## 2) Data Model
 
-**Bulletin\_Request\_\_c**
+### `Bulletin_Request__c`
 
-* `Type__c` = *Suggestion* or *Support Request*
-* `Status__c` (unified picklist; UI shows the relevant subset per type)
-* `Priority__c` (support)
-* `Title__c` (auto-derived from body if blank)
-* `Description__c` *(Rich Text)* — includes a header (“Suggested By / Date”)
-* `OwnerId` — used for support (user or **Bulletin Support** queue)
+* `Type__c` — **Suggestion** or **Support Request**
+* `Bulletin_Status__c` — **Lookup** to `Bulletin_Status__c` (current status label comes from the related record’s `Name`)
+* `Priority__c` — used for support
+* `Title__c` — auto-derived from body if blank (in Apex)
+* `Description__c` — Rich Text; includes a small header for “Suggested By / Date”
+* `OwnerId` — for support, can be a user or the **Bulletin Support** queue
 * Standard audit fields (CreatedBy, CreatedDate, LastModifiedDate)
+  (Fields align with service DTO and UI needs.) 
 
-**Bulletin\_Category\_\_c** – `Name`, `Active__c` (drives filters & submit form)
+### `Bulletin_Category__c`
 
-**Bulletin\_Tag\_\_c** – junction: `Request__c` ↔ `Category__c` (+ `Name`)
+* `Name`, `Active__c` (active categories drive filters & submit form options). 
 
-**Bulletin\_Comment\_\_c** – `Request__c`, `Body__c` (uses CreatedBy/CreatedDate)
+### `Bulletin_Tag__c`
+
+* Junction between Request and Category; stores `Name` for quick, orderable display. 
+
+### `Bulletin_Comment__c`
+
+* `Request__c`, `Body__c`; CreatedBy/CreatedDate are used for author & timestamp. 
+
+### `Bulletin_Status__c`  (**new**)
+
+* `Active__c` — only active statuses appear in pickers
+* `Suggestion_Status__c` (checkbox) — indicates usable for **Suggestion** type
+* `Support_Status__c` (checkbox) — indicates usable for **Support Request** type
+* `Status_Order_Suggestion__c` (Number) — controls display order for Suggestion statuses
+* `Status_Order_Support__c` (Number) — controls display order for Support statuses
+  (Fields as defined in metadata.)   
 
 ---
 
 ## 3) Permissions & Visibility
 
-**Permission Sets (included in package)**
+### Permission Sets (included)
 
 * **Bulletin Admin**
 
   * Full access to Bulletin objects.
-  * UI: sees **Owner** filter (Any/Me/Unassigned/Admin user), can **reassign owners**, **change status**, and **edit any description**.
-
+  * UI: sees **Owner** filter (Any/Me/Unassigned/Admin user), can reassign owners, change status, and edit any description. 
 * **Bulletin User**
 
-  * Create requests, comment, and view all requests.
-  * UI: Suggestion Box defaults to **My (CreatedBy)**.
-  * Can edit **description only** on their own requests.
-  * Cannot change status or owner.
+  * Create requests, comment, and view requests.
+  * UI: Suggestion Box defaults to **My (CreatedBy)**; can edit description on own requests; cannot change status or owner. 
 
-**Queue (included in package)**
+### Queue (included)
 
-* **Bulletin Support** (`Bulletin_Support`) already linked to `Bulletin_Request__c`.
-
-  * *Optional:* set a **Queue Email** if you want notifications or inbound routing.
+* **Bulletin Support** (`Bulletin_Support`) is linked to `Bulletin_Request__c`. Optionally set a Queue Email. 
 
 ---
 
 ## 4) Apex Service (API Surface)
 
-`BulletinService.cls` (single facade)
+**Class:** `BulletinService.cls` (single facade)
 
-**Reads**
+### Reads
 
-* `listSuggestions(filtersJson)` → `List<RequestDto>`
+* `listSuggestions(filtersJson)` → `List<RequestDto)`
 * `listSupportTickets(filtersJson)` → `List<RequestDto>`
 * `getRequest(id)` → `RequestDto`
 * `listComments(requestId)` → `List<CommentDto>`
 * `listActiveCategoryNames()` → `List<String>`
 * `getSupportOwnerOptions()` → `List<UserOption>` (queue + admins)
 * `getBulletinContext()` → `BulletinContext` (isAdmin, adminUsers, bulletinUsers)
+* `listActiveStatusOptions(type)` → `List<StatusOption>` — **dynamically** returns active statuses valid for the given type, ordered by the type-specific order field.
 
-**Writes**
+### Writes
 
-* `updateStatus(id, status)` → `RequestDto`
+* `updateStatus(id, status)` → `RequestDto` — accepts **Status Id or Name**; resolves to a valid, active status for the record’s type
 * `updateOwner(id, ownerId)` → `RequestDto`
 * `updateDescription(id, bodyHtml)` → `RequestDto`
 * `createComment(requestId, body)` → `CommentDto`
-* `createRequest(type, title, bodyHtml, categoryIds)` → `RequestDto`
+* `createRequest(type, title, bodyHtml, categoryIds)` → `RequestDto` — sets default status dynamically for the given type (first active by order) and assigns the Support queue owner for Support tickets when available
 
-**DTO highlights**
+### DTO Highlights
 
-* `RequestDto` includes: `id, recordNumber, title, type, status, priority, categories, ownerId, ownerName, createdById, createdByName, createdByTitle, createdDate, updatedDate, commentCount, descriptionHtml`
+`RequestDto` includes: `id, recordNumber, title, type, status, priority, categories, ownerId, ownerName, createdById, createdByName, createdByTitle, createdDate, updatedDate, commentCount, descriptionHtml`. 
 
 ---
 
@@ -116,66 +129,65 @@ Standard
 
 ### LWCs
 
-* **`bulletinBoard`** — App header (“**Bulletin** by Delegate”), tabs for **Suggestion Box** / **Help Desk**, owns filters and calls Apex. Hosts:
-
-  * **`bulletinDetailModal`** — rich description (inline edit when allowed), status/owner controls (with “Saved” banners), comments thread (reactive).
-  * **`bulletinSubmitRequest`** — single RTA composer (optional title) + category chooser; pre-seeded with helpful headings.
-
-* **`suggestionBox`** — Table view with filters: search, decision, category, **owner scope** (Users default **Me**, Admins default **Any**).
-
-* **`supportConsole`** — Table view with filters: search, status, category, **owner scope** (Any/Me/Unassigned/Admin user).
+* **`bulletinBoard`** — App header + tab switcher; owns filters and calls Apex. Hosts the modal and submit form, and routes events. (See app CSS for layout.) 
+* **`suggestionBox`** — Table with filters: search, decision (status), category, **owner scope** (Users default **Me**, Admins default **Any**). Emits `querychange` to parent. (Status options are dynamic when using service method.)  
+* **`supportConsole`** — Table/kanban with filters: search, status, category, **owner scope** (Any/Me/Unassigned/Admin user). Status options are populated via the service for Support type. Emits `querychange`.  
+* **`bulletinDetailModal`** — Record view/edit: description editor, status selector, owner selector (admins on Support), and comments. Emits `savestatus`, `recordupdated`, and `postcomment`. (UI arrangement & styles in component files.)  
+* **`bulletinSubmitRequest`** — Single RTA composer; auto-derives a title if blank; lets the user select categories and type (Suggestion/Support). On submit, calls `createRequest(...)` and raises a success event.  
 
 ### Aura (Global Action)
 
-* **`BulletinSubmitQuickAction`** — Global Action wrapper that opens an overlay modal.
-* **`bulletinSubmitModalBody`** — The modal body; hosts the `bulletinSubmitRequest` LWC and closes the overlay/action on **submit** or **cancel**.
-
-### Quick Action (metadata)
-
-* **`New_Bulletin_Request.quickAction`** — Global action that launches `BulletinSubmitQuickAction`.
+* **`BulletinSubmitQuickAction`** — Opens overlay containing
+* **`bulletinSubmitModalBody`** — Hosts the `bulletinSubmitRequest` LWC; closes on submit/cancel. 
 
 ---
 
-## 6) Filtering & Scoping Rules
+## 6) Filtering & Search
 
-Filters payload (`filtersJson`):
+**Filters payload** passed from the list components to Apex:
 
 ```json
 {
   "search": "string",
-  "status": "string",
+  "status": "string",            // Status Id or Name
   "categoryName": "string",
   "pageSize": 50,
   "ownerScope": "ANY | ME | UNASSIGNED | USER:<Id>"
 }
 ```
 
-* **Suggestion Box**: `ownerScope` applies to **CreatedBy**
+(Owner scope semantics: CreatedBy for Suggestion, Owner for Support.) 
 
-  * Users default **ME**; Admins default **ANY**
-* **Help Desk**: `ownerScope` applies to **Owner**
+* **Search**: Title-only “contains” match (no description search).
+* **Status**: Accepts **Id or Name**; resolved to active statuses valid for the requested type.
+* **Owner Scope**:
 
-  * Admins choose **Any**, **Me**, **Unassigned** (queue), or a specific admin
-
-**Sorting**: Both tables default to **CreatedDate DESC** (no “Created” column in the table to keep the view clean).
+  * Suggestion Box: filters by **CreatedBy** (Users default **ME**, Admins default **ANY**)
+  * Help Desk: filters by **Owner** (Admin options: Any, Me, Unassigned (queue), or a specific admin)
+* **Sort**: CreatedDate DESC. 
 
 ---
 
-## 7) Install & Setup (Package Flow)
+## 7) Install & Setup
 
-1. **Install the package.**
-2. **Assign Permission Sets** to users:
+1. **Install the package** and assign Permission Sets:
 
-   * **Bulletin Admin**
-   * **Bulletin User**
-3. *(Optional)* Open the packaged **Bulletin Support** queue and set a **Queue Email**.
-4. **Create Categories** (ensure **Active\_\_c = true**).
-5. **Global Action (manual layout step):**
+* **Bulletin Admin**
+* **Bulletin User** 
 
-   * The **New Bulletin Request** global action is included.
-   * Add it to your **Global Publisher Layout**:
-     *Setup → Global Actions → Publisher Layouts → Edit → add “New Bulletin Request” → Save.*
-6. **You’re done.** The Bulletin app’s home page already contains `bulletinBoard`—it’s plug-and-play.
+2. *(Optional)* Open **Bulletin Support** queue and set a **Queue Email**. 
+
+3. **Create Categories** and set **Active**. 
+
+4. **Create Statuses** (`Bulletin_Status__c`):
+
+* Set **Active** on each record to expose it in pickers.
+* Check **Suggestion Status** and/or **Support Status** to scope per request type.
+* Set display order using **Status Order (Suggestion)** and/or **Status Order (Support)**.
+  (Fields from object metadata.)  
+
+5. **Global Action**
+   The **New Bulletin Request** action is included. Add it to your **Global Publisher Layout**. 
 
 ---
 
@@ -185,35 +197,33 @@ Filters payload (`filtersJson`):
 * [ ] Permission sets assigned
 * [ ] (Optional) Queue Email set on **Bulletin Support**
 * [ ] Categories created & **Active**
-* [ ] “New Bulletin Request” action added to **Global Publisher Layout**
+* [ ] Statuses created, **Active**, scoped per type, and ordered
+* [ ] “New Bulletin Request” action added to **Global Publisher Layout** 
 
 ---
 
 ## 9) Gotchas & FAQs
 
 * **“Why can’t I change the status or owner?”**
-  Only **Bulletin Admins** can. Standard users can comment and edit the **description** of **their own** requests.
+  Only **Bulletin Admins** can. Standard users can comment and edit the **description** of **their own** requests. 
 
 * **“Why do I only see my suggestions by default?”**
-  That’s by design—Suggestion Box defaults to **My (CreatedBy)** for standard users. Admins default to **Any**.
+  Suggestion Box defaults to **My (CreatedBy)** for standard users; Admins default to **Any**. 
 
-* **“Why is ‘Unassigned’ empty?”**
-  It shows support tickets owned by the **Bulletin Support** queue. If none appear, there may be no queue-owned items right now.
+* **“Unassigned shows nothing.”**
+  It lists items owned by the **Bulletin Support** queue; there may be none currently. 
 
-* **“Why can’t I upload files or @mention?”**
-  Coming soon—see **Roadmap** below.
-
-* **“Filters don’t show categories.”**
-  Make sure you’ve created **active** `Bulletin_Category__c` records and have access via your profile/perm set.
+* **“Status picklists differ between pages.”**
+  Status options are **type-scoped** and ordered dynamically from `Bulletin_Status__c` using active flags and order fields; lists show the relevant subset for each surface (suggestions/support). (See service + list components.)  
 
 ---
 
 ## 10) Roadmap
 
-* **Richer comments**: @mentions and **file uploads**.
-* **Admin Setup Console**: manage categories, permission set assignments, integration settings, and optionally customize **stages** and **labels**.
-* **Slack integration**: submit & discuss requests directly from Slack with the same UX.
-* **Jira integration**: deeper cross-system linkage for downstream delivery tracking.
+* Richer comments: @mentions and file uploads
+* Admin Setup Console: manage categories, permission sets, and status labels in one place
+* Slack integration
+* Jira integration 
 
 ---
 

@@ -2,7 +2,7 @@ public without sharing class BulletinService {
     /* ==================== Filters & DTOs ==================== */
     public class Filters {
         @AuraEnabled public String  search;
-        @AuraEnabled public String  status;
+        @AuraEnabled public String  status;        // accepts Status Id or Name
         @AuraEnabled public String  categoryName;
         @AuraEnabled public Integer pageSize;
         // Suggestions: 'ANY' | 'ME' | 'USER:<Id>'
@@ -14,7 +14,7 @@ public without sharing class BulletinService {
         @AuraEnabled public String       recordNumber;
         @AuraEnabled public String       title;
         @AuraEnabled public String       type;
-        @AuraEnabled public String       status;
+        @AuraEnabled public String       status;          // label (Bulletin_Status__r.Name)
         @AuraEnabled public String       priority;
         @AuraEnabled public List<String> categories;
         @AuraEnabled public Id           ownerId;
@@ -42,6 +42,11 @@ public without sharing class BulletinService {
         @AuraEnabled public Id     id;
         @AuraEnabled public String name;
         public CategoryOption(Id i, String n){ id=i; name=n; }
+    }
+    public class StatusOption {
+        @AuraEnabled public Id     id;
+        @AuraEnabled public String name;
+        public StatusOption(Id i, String n){ id=i; name=n; }
     }
     public class BulletinContext {
         @AuraEnabled public Boolean           isAdmin;
@@ -104,7 +109,6 @@ public without sharing class BulletinService {
             String qname = [SELECT Name FROM Group WHERE Id = :qid LIMIT 1].Name;
             out.add(new UserOption(qid, qname)); // "Unassigned" path
         }
-        // Admins
         for (PermissionSetAssignment psa : [
             SELECT AssigneeId, Assignee.Name
             FROM PermissionSetAssignment
@@ -112,6 +116,30 @@ public without sharing class BulletinService {
         ]) out.add(new UserOption(psa.AssigneeId, psa.Assignee.Name));
         return out;
     }
+
+    /* ======= Dynamic Status Options for pickers ======= */
+    @AuraEnabled(cacheable=true)
+    public static List<StatusOption> listActiveStatusOptions(String type) {
+        Boolean wantSupport    = (type == 'Support Request');
+        Boolean wantSuggestion = (type == 'Suggestion');
+
+        String orderField = wantSupport ? 'Status_Order_Support__c'
+                        : wantSuggestion ? 'Status_Order_Suggestion__c'
+                        : 'Status_Order_Suggestion__c';
+
+        String whereClause = 'Active__c = true';
+        if (wantSupport)    whereClause += ' AND Support_Status__c = true';
+        if (wantSuggestion) whereClause += ' AND Suggestion_Status__c = true';
+
+        List<StatusOption> out = new List<StatusOption>();
+        for (Bulletin_Status__c s : Database.query(
+            'SELECT Id, Name FROM Bulletin_Status__c ' +
+            'WHERE ' + whereClause + ' ' +
+            'ORDER BY ' + orderField + ' NULLS LAST, Name'
+        )) out.add(new StatusOption(s.Id, s.Name));
+        return out;
+    }
+
 
     /* ======= Categories for filters & form ======= */
     @AuraEnabled(cacheable=true)
@@ -141,73 +169,68 @@ public without sharing class BulletinService {
     private static List<RequestDto> queryRequests(Set<String> types, Filters f, Boolean supportView){
         Integer lim = (f != null && f.pageSize != null && f.pageSize > 0) ? Math.min(f.pageSize, 200) : 50;
 
-        String statusVal  = (f != null && String.isNotBlank(f.status)) ? f.status : null;
-        String catName    = (f != null && String.isNotBlank(f.categoryName)) ? f.categoryName : null;
+        String statusVal  = (f != null && String.isNotBlank(f.status)) ? f.status.trim() : null;
+        String catName    = (f != null && String.isNotBlank(f.categoryName)) ? f.categoryName.trim() : null;
         String scope      = (f != null ? f.ownerScope : null);
         String rawSearch  = (f != null && String.isNotBlank(f.search)) ? f.search.trim() : null;
 
         Boolean isAdmin = hasBulletinAdmin();
-        Id      uid     = UserInfo.getUserId();
+        String  uid     = UserInfo.getUserId();
 
-        // If a search term exists, use SOSL to find matching request Ids (Title__c + Description__c via ALL FIELDS),
-        // then apply all other filters via SOQL.
-        Set<Id> searchMatchedIds = null;
-        if (rawSearch != null) {
-            // Basic sanitization for SOSL reserved characters; keep it simple and generous.
-            String q = sanitizeSoslQuery(rawSearch) + '*';
-
-            // Narrow by Type__c in the SOSL RETURNING filter to reduce result set early.
-            List<List<SObject>> sosl = Search.query(
-                'FIND :q IN ALL FIELDS RETURNING ' +
-                'Bulletin_Request__c (Id WHERE Type__c IN :types)'
-            );
-            if (!sosl.isEmpty()) {
-                searchMatchedIds = new Set<Id>();
-                for (SObject sob : sosl[0]) searchMatchedIds.add((Id)sob.get('Id'));
-                if (searchMatchedIds.isEmpty()) return new List<RequestDto>(); // no matches at all
-            }
+        // Status filter (accept Id or Name, active, scoped by type)
+        Set<Id> statusIds = (statusVal != null) ? resolveStatusIds(statusVal, types) : null;
+        if (statusVal != null && (statusIds == null || statusIds.isEmpty())) {
+            return new List<RequestDto>(); // no such status for this type
         }
 
-        // Build WHERE parts with bind variables
         List<String> whereParts = new List<String>();
-        if (!types.isEmpty())  whereParts.add('Type__c IN :types');
-        if (searchMatchedIds != null) whereParts.add('Id IN :searchMatchedIds');
+
+        if (!types.isEmpty()){
+            whereParts.add('Type__c IN (' + joinQuoted(types) + ')');
+        }
+
+        // Title-only search
+        if (rawSearch != null){
+            String likeExpr = '%' + String.escapeSingleQuotes(rawSearch) + '%';
+            whereParts.add('Title__c LIKE \'' + likeExpr + '\'');
+        }
+
+        if (statusIds != null) whereParts.add('Bulletin_Status__c IN (' + toIdCsv(statusIds) + ')');
 
         if (supportView) {
             if (!isAdmin) {
-                whereParts.add('CreatedById = :uid');
+                whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (String.isNotBlank(scope) && scope != 'ANY') {
                 if (scope == 'ME') {
-                    whereParts.add('OwnerId = :uid');
+                    whereParts.add('OwnerId = \'' + uid + '\'');
                 } else if (scope == 'UNASSIGNED') {
                     Set<Id> qids = getRequestQueueIds();
-                    if (!qids.isEmpty()) whereParts.add('OwnerId IN :qids');
-                    else whereParts.add('OwnerId = \'000000000000000AAA\''); // impossible match placeholder
+                    if (!qids.isEmpty()) whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
+                    else whereParts.add('OwnerId = \'000000000000000AAA\'');
                 } else if (scope != null && scope.startsWith('USER:')) {
-                    Id ownerId = (Id) (scope.length() > 5 ? scope.substring(5) : null);
-                    if (ownerId != null) whereParts.add('OwnerId = :ownerId');
+                    String ownerId = (scope.length() > 5 ? scope.substring(5) : null);
+                    if (ownerId != null) whereParts.add('OwnerId = \'' + String.escapeSingleQuotes(ownerId) + '\'');
                 }
             }
         } else {
             String eff = scope;
             if (String.isBlank(eff)) eff = (isAdmin ? 'ANY' : 'ME');
             if (eff == 'ME') {
-                whereParts.add('CreatedById = :uid');
+                whereParts.add('CreatedById = \'' + uid + '\'');
             } else if (eff != null && eff.startsWith('USER:')) {
-                Id createdById = (Id) (eff.length() > 5 ? eff.substring(5) : null);
-                if (createdById != null) whereParts.add('CreatedById = :createdById');
+                String createdById = (eff.length() > 5 ? eff.substring(5) : null);
+                if (createdById != null) whereParts.add('CreatedById = \'' + String.escapeSingleQuotes(createdById) + '\'');
             }
         }
 
-        if (statusVal != null) whereParts.add('Status__c = :statusVal');
-        if (catName   != null) whereParts.add('Id IN (SELECT Request__c FROM Bulletin_Tag__c WHERE Category__r.Name = :catName)');
-
-        // If no WHERE parts (unlikely), inject a harmless true condition to keep the query valid
-        if (whereParts.isEmpty()) whereParts.add('Id != null');
+        if (catName != null)
+            whereParts.add('Id IN (SELECT Request__c FROM Bulletin_Tag__c WHERE Category__r.Name = \'' + String.escapeSingleQuotes(catName) + '\')');
 
         String soql =
-            'SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c, ' +
-            '       Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate ' +
+            'SELECT Id, Name, Title__c, Type__c, ' +
+            '       Bulletin_Status__c, Bulletin_Status__r.Name, ' +
+            '       Priority__c, Description__c, OwnerId, Owner.Name, ' +
+            '       CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate ' +
             'FROM Bulletin_Request__c ' +
             'WHERE ' + String.join(whereParts, ' AND ') + ' ' +
             'ORDER BY CreatedDate DESC ' +
@@ -252,8 +275,10 @@ public without sharing class BulletinService {
     @AuraEnabled(cacheable=true)
     public static RequestDto getRequest(Id id){
         Bulletin_Request__c r = [
-            SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c,
-                   Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate
+            SELECT Id, Name, Title__c, Type__c,
+                   Bulletin_Status__c, Bulletin_Status__r.Name,
+                   Priority__c, Description__c, OwnerId, Owner.Name,
+                   CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate
             FROM Bulletin_Request__c
             WHERE Id = :id
             LIMIT 1
@@ -272,15 +297,30 @@ public without sharing class BulletinService {
     @AuraEnabled
     public static RequestDto updateStatus(Id id, String status){
         if (String.isBlank(status)) throw new AuraHandledException('Status required');
-        update new Bulletin_Request__c(Id = id, Status__c = status);
+
+        Bulletin_Request__c current = [
+            SELECT Id, Type__c, Bulletin_Status__c
+            FROM Bulletin_Request__c
+            WHERE Id = :id
+            LIMIT 1
+        ];
+
+        Set<Id> statusIds = resolveStatusIds(status, new Set<String>{ current.Type__c });
+        if (statusIds == null || statusIds.isEmpty())
+            throw new AuraHandledException('Unknown status: ' + status);
+
+        Id toId = statusIds.iterator().next();
+        update new Bulletin_Request__c(Id = id, Bulletin_Status__c = toId);
         return getRequest(id);
     }
+
     @AuraEnabled
     public static RequestDto updateDescription(Id id, String bodyHtml){
         if (String.isBlank(bodyHtml)) throw new AuraHandledException('Description body required');
         update new Bulletin_Request__c(Id = id, Description__c = bodyHtml);
         return getRequest(id);
     }
+
     @AuraEnabled
     public static RequestDto updateOwner(Id id, Id ownerId){
         if (ownerId == null) throw new AuraHandledException('Owner required');
@@ -307,6 +347,7 @@ public without sharing class BulletinService {
         }
         return out;
     }
+
     @AuraEnabled
     public static CommentDto createComment(Id requestId, String body){
         if (String.isBlank(body)) throw new AuraHandledException('Comment body required');
@@ -356,7 +397,11 @@ public without sharing class BulletinService {
 
         Bulletin_Request__c req = new Bulletin_Request__c();
         req.Type__c        = t;
-        req.Status__c      = 'New';
+
+        // dynamic default status by type (active + ordered)
+        Id defaultStatusId = findDefaultStatusId(t);
+        req.Bulletin_Status__c = defaultStatusId;
+
         req.Title__c       = finalTitle;
         req.Description__c = finalHtml;
 
@@ -401,7 +446,7 @@ public without sharing class BulletinService {
         d.recordNumber    = r.Name;
         d.title           = r.Title__c;
         d.type            = r.Type__c;
-        d.status          = r.Status__c;
+        d.status          = (r.Bulletin_Status__r != null ? r.Bulletin_Status__r.Name : null);
         d.priority        = r.Priority__c;
         d.categories      = (cats != null ? cats : new List<String>());
         d.ownerId         = r.OwnerId;
@@ -416,12 +461,49 @@ public without sharing class BulletinService {
         return d;
     }
 
-    // Minimal SOSL reserved character handling
-    private static String sanitizeSoslQuery(String s){
-        // Replace characters that often break SOSL syntax with spaces; collapse whitespace
-        String t = s.replaceAll('[\\?\\|\\!\\{\\}\\[\\]\\(\\)\\^\\~\\*\\:\\\\\"\\+\\-]+', ' ');
-        t = t.replaceAll('\\s+', ' ').trim();
-        return t;
+    // Resolve a status input (Id or Name) into Ids, respecting active + type flags (NO binds in dynamic SOQL)
+    private static Set<Id> resolveStatusIds(String input, Set<String> types){
+        if (String.isBlank(input)) return null;
+
+        // direct Id?
+        if (input.length() == 18 || input.length() == 15) {
+            try { return new Set<Id>{ (Id)input }; } catch (Exception ignore) {}
+        }
+
+        Boolean acceptSupport    = types.contains('Support Request');
+        Boolean acceptSuggestion = types.contains('Suggestion');
+
+        String whereClause = 'Active__c = true AND Name = \'' + String.escapeSingleQuotes(input) + '\'';
+        if (acceptSupport && !acceptSuggestion)    whereClause += ' AND Support_Status__c = true';
+        if (acceptSuggestion && !acceptSupport)    whereClause += ' AND Suggestion_Status__c = true';
+
+        Set<Id> out = new Set<Id>();
+        for (Bulletin_Status__c s : Database.query(
+            'SELECT Id FROM Bulletin_Status__c WHERE ' + whereClause + ' LIMIT 200'
+        )) out.add(s.Id);
+        return out.isEmpty() ? null : out;
+    }
+
+    // Default status by type (active + ordered) (NO binds in dynamic SOQL)
+    private static Id findDefaultStatusId(String typeVal) {
+        Boolean wantSupport    = (typeVal == 'Support Request');
+        Boolean wantSuggestion = (typeVal == 'Suggestion');
+
+        String orderField = wantSupport ? 'Status_Order_Support__c'
+                        : wantSuggestion ? 'Status_Order_Suggestion__c'
+                        : 'Status_Order_Suggestion__c';
+
+        String whereClause = 'Active__c = true';
+        if (wantSupport)    whereClause += ' AND Support_Status__c = true';
+        if (wantSuggestion) whereClause += ' AND Suggestion_Status__c = true';
+
+        List<Bulletin_Status__c> rows = Database.query(
+            'SELECT Id FROM Bulletin_Status__c ' +
+            'WHERE ' + whereClause + ' ' +
+            'ORDER BY ' + orderField + ' NULLS LAST, Name ' +
+            'LIMIT 1'
+        );
+        return rows.isEmpty() ? null : rows[0].Id;
     }
 
     // HTML escape helper
@@ -434,6 +516,18 @@ public without sharing class BulletinService {
         out = out.replaceAll('"', '&quot;');
         out = out.replaceAll('\'' , '&#39;');
         return out;
+    }
+
+    // CSV helpers
+    private static String toIdCsv(Set<Id> ids){
+        List<String> parts = new List<String>();
+        for (Id i : ids) parts.add('\'' + String.valueOf(i) + '\'');
+        return String.join(parts, ',');
+    }
+    private static String joinQuoted(Set<String> vals){
+        List<String> out = new List<String>();
+        for (String v : vals) out.add('\'' + String.escapeSingleQuotes(v) + '\'');
+        return String.join(out, ',');
     }
 
     // ===== UNASSIGNED support queue logic =====
@@ -477,6 +571,7 @@ public without sharing class BulletinService {
         return null;
     }
 
+    // Helpful for tests to clear static caches
     @TestVisible private static void resetCaches(){
         REQUEST_QUEUE_IDS = null;
         SUPPORT_QUEUE_ID  = null;

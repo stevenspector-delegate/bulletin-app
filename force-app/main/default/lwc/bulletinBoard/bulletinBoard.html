@@ -19,6 +19,9 @@
         users={bulletinUsers}
         is-admin={isAdmin}
         owner-scope={lastSuggestionFilters.ownerScope}
+        preset-status={lastSuggestionFilters.status}
+        preset-category={lastSuggestionFilters.categoryName}
+        preset-search={lastSuggestionFilters.search}
         onquerychange={onSuggestionsQuery}
         onopenrecord={openDetail}
         onnewsuggestion={launchNewSuggestion}>
@@ -32,6 +35,10 @@
         categories={categoryOptions}
         is-admin={isAdmin}
         admins={adminUsers}
+        preset-status={lastSupportFilters.status}
+        preset-category={lastSupportFilters.categoryName}
+        preset-search={lastSupportFilters.search}
+        preset-owner-scope={lastSupportFilters.ownerScope}
         onquerychange={onSupportQuery}
         onopenrecord={openDetail}
         onnewticket={launchNewTicket}>
