@@ -72,7 +72,6 @@ export default class SuggestionBox extends LightningElement {
       { label:'Title', fieldName:'title' },
       { label:'Decision', fieldName:'status' },
       { label:'Category', fieldName:'categoryText' },
-      // 🔁 Show Submitter (matches CreatedBy filter logic)
       { label:'Submitter', fieldName:'createdByName' },
       { label:'Comments', fieldName:'commentCount', type:'number', initialWidth:120, cellAttributes:{ alignment:'center' } },
       { label:'Updated', fieldName:'updatedDate', initialWidth:110 },

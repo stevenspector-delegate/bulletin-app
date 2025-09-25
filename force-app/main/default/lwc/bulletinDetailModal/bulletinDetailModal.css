@@ -34,15 +34,15 @@
 /* 👇 stack input over the button */
 .composer{
   display:flex;
-  flex-direction: column;  /* was: row */
+  flex-direction: column; 
   gap:8px;
   padding:10px 12px;
   border-top:1px solid #e5e7eb;
 }
-.c-input{ flex:0 0 auto; }               /* no flex grow needed when stacked */
+.c-input{ flex:0 0 auto; }               
 .c-input textarea,
-.c-input lightning-textarea{ width:100%; } /* ensure full width */
-.composer .btn{ align-self:flex-end; }    /* keep “Post” right-aligned below */
+.c-input lightning-textarea{ width:100%; } 
+.composer .btn{ align-self:flex-end; }    
 
 
 /* Sidebar */

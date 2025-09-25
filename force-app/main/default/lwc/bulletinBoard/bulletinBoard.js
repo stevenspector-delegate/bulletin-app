@@ -31,13 +31,13 @@ export default class BulletinBoard extends LightningElement {
   @track activeComments = [];
   @track statusSaved = false;
 
-  // submit modal (reuse existing state names for minimal change)
+  // submit modal
   @track flowOpen = false;
   @track flowTitle = 'New Request';
-  @track initialType = 'Suggestion'; // << new: passed to child LWC
+  @track initialType = 'Suggestion';
 
   // last filters
-  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME' };   // users=ME, admins=ANY
+  lastSuggestionFilters = { pageSize: 50, ownerScope: 'ME' }; 
   lastSupportFilters    = { pageSize: 50, ownerScope: 'ANY' };
 
   async connectedCallback() {

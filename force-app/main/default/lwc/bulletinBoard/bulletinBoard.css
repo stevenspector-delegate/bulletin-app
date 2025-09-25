@@ -1,10 +1,9 @@
 :host {
   display: block;
-  background: #f7f8fb;   /* surface color */
+  background: #f7f8fb; 
   min-height: 80vh;
 }
 
-/* Shell spacing for main area */
 .surface { padding: 12px 16px; }
 
 /* App bar & tabs */

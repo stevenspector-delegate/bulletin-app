@@ -1,53 +1,53 @@
 public without sharing class BulletinService {
     /* ==================== Filters & DTOs ==================== */
     public class Filters {
-        @AuraEnabled public String search;
-        @AuraEnabled public String status;
-        @AuraEnabled public String categoryName;
+        @AuraEnabled public String  search;
+        @AuraEnabled public String  status;
+        @AuraEnabled public String  categoryName;
         @AuraEnabled public Integer pageSize;
         // Suggestions: 'ANY' | 'ME' | 'USER:<Id>'
         // Support:     'ANY' | 'ME' | 'UNASSIGNED' | 'USER:<Id>'
-        @AuraEnabled public String ownerScope;
+        @AuraEnabled public String  ownerScope;
     }
     public class RequestDto {
-        @AuraEnabled public Id id;
-        @AuraEnabled public String recordNumber;
-        @AuraEnabled public String title;
-        @AuraEnabled public String type;
-        @AuraEnabled public String status;
-        @AuraEnabled public String priority;
+        @AuraEnabled public Id           id;
+        @AuraEnabled public String       recordNumber;
+        @AuraEnabled public String       title;
+        @AuraEnabled public String       type;
+        @AuraEnabled public String       status;
+        @AuraEnabled public String       priority;
         @AuraEnabled public List<String> categories;
-        @AuraEnabled public Id ownerId;
-        @AuraEnabled public String ownerName;
-        @AuraEnabled public Id createdById;
-        @AuraEnabled public String createdByName;
-        @AuraEnabled public String createdByTitle; // <-- add this line
-        @AuraEnabled public String createdDate;
-        @AuraEnabled public String updatedDate;
-        @AuraEnabled public Integer commentCount;
-        @AuraEnabled public String descriptionHtml;
+        @AuraEnabled public Id           ownerId;
+        @AuraEnabled public String       ownerName;
+        @AuraEnabled public Id           createdById;
+        @AuraEnabled public String       createdByName;
+        @AuraEnabled public String       createdByTitle;
+        @AuraEnabled public String       createdDate;
+        @AuraEnabled public String       updatedDate;
+        @AuraEnabled public Integer      commentCount;
+        @AuraEnabled public String       descriptionHtml;
     }
     public class CommentDto {
-        @AuraEnabled public Id id;
-        @AuraEnabled public String authorName;
+        @AuraEnabled public Id       id;
+        @AuraEnabled public String   authorName;
         @AuraEnabled public Datetime createdOn;
-        @AuraEnabled public String body;
+        @AuraEnabled public String   body;
     }
     public class UserOption {
-        @AuraEnabled public Id id;
+        @AuraEnabled public Id     id;
         @AuraEnabled public String name;
         public UserOption(Id i, String n){ id=i; name=n; }
     }
     public class CategoryOption {
-        @AuraEnabled public Id id;
+        @AuraEnabled public Id     id;
         @AuraEnabled public String name;
         public CategoryOption(Id i, String n){ id=i; name=n; }
     }
     public class BulletinContext {
-        @AuraEnabled public Boolean isAdmin;
-        @AuraEnabled public List<UserOption> adminUsers;
-        @AuraEnabled public List<UserOption> bulletinUsers;
-        @AuraEnabled public String adminQueueName; // informational
+        @AuraEnabled public Boolean           isAdmin;
+        @AuraEnabled public List<UserOption>  adminUsers;
+        @AuraEnabled public List<UserOption>  bulletinUsers;
+        @AuraEnabled public String            adminQueueName; // informational
     }
 
     /* ==================== Entry Points ==================== */
@@ -55,7 +55,6 @@ public without sharing class BulletinService {
     public static List<RequestDto> listSuggestions(String filtersJson){
         return queryRequests(new Set<String>{ 'Suggestion' }, parse(filtersJson), /*supportView*/ false);
     }
-
     @AuraEnabled
     public static List<RequestDto> listSupportTickets(String filtersJson){
         return queryRequests(new Set<String>{ 'Support Request' }, parse(filtersJson), /*supportView*/ true);
@@ -126,7 +125,6 @@ public without sharing class BulletinService {
         ]) out.add(new CategoryOption(c.Id, c.Name));
         return out;
     }
-
     @AuraEnabled(cacheable=true)
     public static List<String> listActiveCategoryNames(){
         List<String> out = new List<String>();
@@ -139,59 +137,77 @@ public without sharing class BulletinService {
         return out;
     }
 
-    /* ==================== Core Listing ==================== */
+    /* ==================== Core Listing (SOSL + SOQL) ==================== */
     private static List<RequestDto> queryRequests(Set<String> types, Filters f, Boolean supportView){
         Integer lim = (f != null && f.pageSize != null && f.pageSize > 0) ? Math.min(f.pageSize, 200) : 50;
 
-        String searchLike = (f != null && String.isNotBlank(f.search)) ? '%' + String.escapeSingleQuotes(f.search) + '%' : null;
-        String statusVal  = (f != null && String.isNotBlank(f.status)) ? String.escapeSingleQuotes(f.status) : null;
-        String catName    = (f != null && String.isNotBlank(f.categoryName)) ? String.escapeSingleQuotes(f.categoryName) : null;
+        String statusVal  = (f != null && String.isNotBlank(f.status)) ? f.status : null;
+        String catName    = (f != null && String.isNotBlank(f.categoryName)) ? f.categoryName : null;
         String scope      = (f != null ? f.ownerScope : null);
+        String rawSearch  = (f != null && String.isNotBlank(f.search)) ? f.search.trim() : null;
 
         Boolean isAdmin = hasBulletinAdmin();
-        String uid = UserInfo.getUserId();
+        Id      uid     = UserInfo.getUserId();
 
+        // If a search term exists, use SOSL to find matching request Ids (Title__c + Description__c via ALL FIELDS),
+        // then apply all other filters via SOQL.
+        Set<Id> searchMatchedIds = null;
+        if (rawSearch != null) {
+            // Basic sanitization for SOSL reserved characters; keep it simple and generous.
+            String q = sanitizeSoslQuery(rawSearch) + '*';
+
+            // Narrow by Type__c in the SOSL RETURNING filter to reduce result set early.
+            List<List<SObject>> sosl = Search.query(
+                'FIND :q IN ALL FIELDS RETURNING ' +
+                'Bulletin_Request__c (Id WHERE Type__c IN :types)'
+            );
+            if (!sosl.isEmpty()) {
+                searchMatchedIds = new Set<Id>();
+                for (SObject sob : sosl[0]) searchMatchedIds.add((Id)sob.get('Id'));
+                if (searchMatchedIds.isEmpty()) return new List<RequestDto>(); // no matches at all
+            }
+        }
+
+        // Build WHERE parts with bind variables
         List<String> whereParts = new List<String>();
-
-        if (!types.isEmpty()){
-            List<String> esc = new List<String>();
-            for (String t : types) esc.add('\'' + String.escapeSingleQuotes(t) + '\'');
-            whereParts.add('Type__c IN (' + String.join(esc, ',') + ')');
-        }
-        if (searchLike != null){
-            whereParts.add('(Title__c LIKE \'' + searchLike + '\' OR Description__c LIKE \'' + searchLike + '\')');
-        }
+        if (!types.isEmpty())  whereParts.add('Type__c IN :types');
+        if (searchMatchedIds != null) whereParts.add('Id IN :searchMatchedIds');
 
         if (supportView) {
             if (!isAdmin) {
-                whereParts.add('CreatedById = \'' + uid + '\'');
+                whereParts.add('CreatedById = :uid');
             } else if (String.isNotBlank(scope) && scope != 'ANY') {
                 if (scope == 'ME') {
-                    whereParts.add('OwnerId = \'' + uid + '\'');
+                    whereParts.add('OwnerId = :uid');
                 } else if (scope == 'UNASSIGNED') {
                     Set<Id> qids = getRequestQueueIds();
-                    if (!qids.isEmpty()) whereParts.add('OwnerId IN (' + toIdCsv(qids) + ')');
-                    else whereParts.add('OwnerId = \'000000000000000AAA\'');
-                } else if (scope.startsWith('USER:')) {
-                    whereParts.add('OwnerId = \'' + String.escapeSingleQuotes(scope.substring(5)) + '\'');
+                    if (!qids.isEmpty()) whereParts.add('OwnerId IN :qids');
+                    else whereParts.add('OwnerId = \'000000000000000AAA\''); // impossible match placeholder
+                } else if (scope != null && scope.startsWith('USER:')) {
+                    Id ownerId = (Id) (scope.length() > 5 ? scope.substring(5) : null);
+                    if (ownerId != null) whereParts.add('OwnerId = :ownerId');
                 }
             }
         } else {
             String eff = scope;
             if (String.isBlank(eff)) eff = (isAdmin ? 'ANY' : 'ME');
             if (eff == 'ME') {
-                whereParts.add('CreatedById = \'' + uid + '\'');
-            } else if (eff.startsWith('USER:')) {
-                whereParts.add('CreatedById = \'' + String.escapeSingleQuotes(eff.substring(5)) + '\'');
+                whereParts.add('CreatedById = :uid');
+            } else if (eff != null && eff.startsWith('USER:')) {
+                Id createdById = (Id) (eff.length() > 5 ? eff.substring(5) : null);
+                if (createdById != null) whereParts.add('CreatedById = :createdById');
             }
         }
 
-        if (statusVal != null) whereParts.add('Status__c = \'' + statusVal + '\'');
-        if (catName != null)   whereParts.add('Id IN (SELECT Request__c FROM Bulletin_Tag__c WHERE Category__r.Name = \'' + catName + '\')');
+        if (statusVal != null) whereParts.add('Status__c = :statusVal');
+        if (catName   != null) whereParts.add('Id IN (SELECT Request__c FROM Bulletin_Tag__c WHERE Category__r.Name = :catName)');
+
+        // If no WHERE parts (unlikely), inject a harmless true condition to keep the query valid
+        if (whereParts.isEmpty()) whereParts.add('Id != null');
 
         String soql =
             'SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c, ' +
-            'Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate ' +
+            '       Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate ' +
             'FROM Bulletin_Request__c ' +
             'WHERE ' + String.join(whereParts, ' AND ') + ' ' +
             'ORDER BY CreatedDate DESC ' +
@@ -237,7 +253,7 @@ public without sharing class BulletinService {
     public static RequestDto getRequest(Id id){
         Bulletin_Request__c r = [
             SELECT Id, Name, Title__c, Type__c, Status__c, Priority__c,
-                Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate
+                   Description__c, OwnerId, Owner.Name, CreatedById, CreatedBy.Name, CreatedBy.Title, CreatedDate, LastModifiedDate
             FROM Bulletin_Request__c
             WHERE Id = :id
             LIMIT 1
@@ -259,14 +275,12 @@ public without sharing class BulletinService {
         update new Bulletin_Request__c(Id = id, Status__c = status);
         return getRequest(id);
     }
-
     @AuraEnabled
     public static RequestDto updateDescription(Id id, String bodyHtml){
         if (String.isBlank(bodyHtml)) throw new AuraHandledException('Description body required');
         update new Bulletin_Request__c(Id = id, Description__c = bodyHtml);
         return getRequest(id);
     }
-
     @AuraEnabled
     public static RequestDto updateOwner(Id id, Id ownerId){
         if (ownerId == null) throw new AuraHandledException('Owner required');
@@ -293,19 +307,16 @@ public without sharing class BulletinService {
         }
         return out;
     }
-
     @AuraEnabled
     public static CommentDto createComment(Id requestId, String body){
         if (String.isBlank(body)) throw new AuraHandledException('Comment body required');
         Bulletin_Comment__c c = new Bulletin_Comment__c(Request__c = requestId, Body__c = body);
         insert c;
-
         Bulletin_Comment__c reloaded = [
             SELECT Id, Body__c, CreatedBy.Name, CreatedDate
             FROM Bulletin_Comment__c
             WHERE Id = :c.Id
         ];
-
         CommentDto d = new CommentDto();
         d.id = reloaded.Id;
         d.authorName = (reloaded.CreatedBy != null ? reloaded.CreatedBy.Name : null);
@@ -375,30 +386,42 @@ public without sharing class BulletinService {
 
     /* ==================== Helpers ==================== */
     private static Filters parse(String filtersJson){
-        return (Filters) JSON.deserialize(filtersJson == null ? '{}' : filtersJson, Filters.class);
+        try {
+            return (Filters) JSON.deserialize(filtersJson == null ? '{}' : filtersJson, Filters.class);
+        } catch (Exception e) {
+            return new Filters();
+        }
     }
     private static String fmt(Datetime dt){
         return (dt == null) ? null : dt.format('MMM d');
     }
     private static RequestDto toDto(Bulletin_Request__c r, List<String> cats, Integer ccount){
         RequestDto d = new RequestDto();
-        d.id = r.Id;
-        d.recordNumber = r.Name;
-        d.title = r.Title__c;
-        d.type = r.Type__c;
-        d.status = r.Status__c;
-        d.priority = r.Priority__c;
-        d.categories = (cats != null ? cats : new List<String>());
-        d.ownerId = r.OwnerId;
-        d.ownerName = (r.Owner != null ? r.Owner.Name : null);
-        d.createdById = r.CreatedById;
-        d.createdByName = (r.CreatedBy != null ? r.CreatedBy.Name : null);
-        d.createdByTitle = (r.CreatedBy != null ? r.CreatedBy.Title : null);
-        d.createdDate = fmt(r.CreatedDate);
-        d.updatedDate = fmt(r.LastModifiedDate);
-        d.commentCount = (ccount == null ? 0 : ccount);
+        d.id              = r.Id;
+        d.recordNumber    = r.Name;
+        d.title           = r.Title__c;
+        d.type            = r.Type__c;
+        d.status          = r.Status__c;
+        d.priority        = r.Priority__c;
+        d.categories      = (cats != null ? cats : new List<String>());
+        d.ownerId         = r.OwnerId;
+        d.ownerName       = (r.Owner != null ? r.Owner.Name : null);
+        d.createdById     = r.CreatedById;
+        d.createdByName   = (r.CreatedBy != null ? r.CreatedBy.Name : null);
+        d.createdByTitle  = (r.CreatedBy != null ? r.CreatedBy.Title : null);
+        d.createdDate     = fmt(r.CreatedDate);
+        d.updatedDate     = fmt(r.LastModifiedDate);
+        d.commentCount    = (ccount == null ? 0 : ccount);
         d.descriptionHtml = r.Description__c;
         return d;
+    }
+
+    // Minimal SOSL reserved character handling
+    private static String sanitizeSoslQuery(String s){
+        // Replace characters that often break SOSL syntax with spaces; collapse whitespace
+        String t = s.replaceAll('[\\?\\|\\!\\{\\}\\[\\]\\(\\)\\^\\~\\*\\:\\\\\"\\+\\-]+', ' ');
+        t = t.replaceAll('\\s+', ' ').trim();
+        return t;
     }
 
     // HTML escape helper
@@ -423,11 +446,6 @@ public without sharing class BulletinService {
             WHERE SObjectType = 'Bulletin_Request__c'
         ]) REQUEST_QUEUE_IDS.add(qs.QueueId);
         return REQUEST_QUEUE_IDS;
-    }
-    private static String toIdCsv(Set<Id> ids){
-        List<String> parts = new List<String>();
-        for (Id i : ids) parts.add('\'' + String.valueOf(i) + '\'');
-        return String.join(parts, ',');
     }
 
     private static Boolean hasBulletinAdmin(){
@@ -457,5 +475,10 @@ public without sharing class BulletinService {
             }
         } catch (Exception e) { /* ignore */ }
         return null;
+    }
+
+    @TestVisible private static void resetCaches(){
+        REQUEST_QUEUE_IDS = null;
+        SUPPORT_QUEUE_ID  = null;
     }
 }
