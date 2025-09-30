@@ -138,4 +138,8 @@
         <tab>Bulletin_Tag__c</tab>
         <visibility>Available</visibility>
     </tabSettings>
+    <tabSettings>
+        <tab>Setup</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
 </PermissionSet>

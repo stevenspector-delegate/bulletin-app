@@ -30,6 +30,15 @@
           onchange={onOwner}>
         </lightning-combobox>
       </template>
+
+      <div class="slds-p-top_large">
+        <lightning-button
+          label="Reset Filters"
+          onclick={resetFilters}
+          variant="base">
+        </lightning-button>
+      </div>
+
     </div>
 
     <div class="row right">
@@ -37,7 +46,6 @@
         <lightning-button label="Table" variant={tableVariant} onclick={showTable}></lightning-button>
         <lightning-button label="Kanban" variant={kanbanVariant} onclick={showKanban}></lightning-button>
       </lightning-button-group>
-      <lightning-button label="Reset Filters" onclick={resetFilters}></lightning-button>
       <lightning-button label="New Ticket" onclick={newTicket}></lightning-button>
     </div>
   </div>
