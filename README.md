@@ -92,9 +92,9 @@ Standard
   * Create requests, comment, and view requests.
   * UI: Suggestion Box defaults to **My (CreatedBy)**; can edit description on own requests; cannot change status or owner. 
 
-### Queue (included)
+### Queue (not included)
 
-* **Bulletin Support** (`Bulletin_Support`) is linked to `Bulletin_Request__c`. Optionally set a Queue Email. 
+* **Bulletin Support** (API Name: `Bulletin_Support`) If found, is linked to `Bulletin_Request__c`. Optionally set a Queue Email. 
 
 ---
 
@@ -177,7 +177,7 @@ Standard
 * **Bulletin Admin**
 * **Bulletin User** 
 
-2. *(Optional)* Open **Bulletin Support** queue and set a **Queue Email**. 
+2. *(Optional but recommended)* Create **Bulletin Support** queue (API Name `Bulletin_Support`) and set a **Queue Email** if desired. 
 
 3. **Create Categories** and set **Active**. 
 
@@ -197,7 +197,7 @@ Standard
 
 * [ ] Package installed
 * [ ] Permission sets assigned
-* [ ] (Optional) Queue Email set on **Bulletin Support**
+* [ ] (Optional) **Bulletin Support** Queue created and email set
 * [ ] Categories created & **Active**
 * [ ] Statuses created, **Active**, scoped per type, and ordered
 * [ ] “New Bulletin Request” action added to **Global Publisher Layout** 
