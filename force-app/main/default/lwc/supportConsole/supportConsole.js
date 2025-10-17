@@ -96,7 +96,7 @@ export default class SupportConsole extends LightningElement {
     return [
       { label:'#', fieldName:'number', initialWidth:80 },
       { label:'Title', fieldName:'title' },
-      { label:'Priority', fieldName:'priority', initialWidth:110 },
+      // { label:'Priority', fieldName:'priority', initialWidth:110 },
       { label:'Status', fieldName:'status', initialWidth:140 },
       { label:'Category', fieldName:'categoryText' },
       { label:'Assignee', fieldName:'ownerName' },
