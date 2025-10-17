@@ -39,8 +39,6 @@ Standard
   User, Group(Queue), QueueSobject, PermissionSetAssignment
 ```
 
-(Architecture matches current code & components.) 
-
 ---
 
 ## 2) Data Model
