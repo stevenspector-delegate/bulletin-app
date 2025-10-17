@@ -118,10 +118,6 @@
         <visibility>Available</visibility>
     </tabSettings>
     <tabSettings>
-        <tab>Bulletin_MVP</tab>
-        <visibility>Available</visibility>
-    </tabSettings>
-    <tabSettings>
         <tab>Bulletin_Request__c</tab>
         <visibility>Available</visibility>
     </tabSettings>

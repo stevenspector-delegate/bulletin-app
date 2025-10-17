@@ -1,5 +1,52 @@
 @IsTest(SeeAllData=false)
 private class BulletinServiceTest {
+    
+    @testSetup
+    static void seedData() {
+        upsertStatus('New',         true,  true,  1, 1);
+        upsertStatus('In Progress', true,  true,  2, 2);
+        upsertStatus('Working',     true,  true,  3, 3);
+        upsertStatus('Resolved',    false, true,  4, 4); 
+        upsertStatus('Closed',      true,  true,  5, 5);
+        ensureSupportQueue(); 
+    }
+
+    private static Id upsertStatus(
+        String name, Boolean forSuggestions, Boolean forSupport, Integer sugOrder, Integer supOrder
+    ){
+        List<Bulletin_Status__c> existing = [
+            SELECT Id FROM Bulletin_Status__c WHERE Name = :name LIMIT 1
+        ];
+        if (!existing.isEmpty()) return existing[0].Id;
+
+        Bulletin_Status__c s = new Bulletin_Status__c(
+            Name = name,
+            Active__c = true,
+            Suggestion_Status__c = forSuggestions,
+            Support_Status__c    = forSupport,
+            Status_Order_Suggestion__c = sugOrder,   
+            Status_Order_Support__c    = supOrder    
+        );
+        insert s;
+        return s.Id;
+    }
+
+    private static void ensureSupportQueue(){
+        Group q;
+        try {
+            q = [SELECT Id FROM Group WHERE Type='Queue' AND DeveloperName='Bulletin_Support' LIMIT 1];
+        } catch (QueryException e) {
+            q = new Group(Name='Bulletin Support', DeveloperName='Bulletin_Support', Type='Queue');
+            insert q;
+        }
+        if ([
+            SELECT COUNT() FROM QueueSobject
+            WHERE QueueId = :q.Id AND SObjectType = 'Bulletin_Request__c'
+        ] == 0){
+            insert new QueueSobject(QueueId=q.Id, SObjectType='Bulletin_Request__c');
+        }
+    }
+
     // ---------- Helpers ----------
     private static User makeUser(String suffix) {
         Profile p = [SELECT Id FROM Profile WHERE Id = :UserInfo.getProfileId()];
