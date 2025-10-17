@@ -10,7 +10,7 @@ A lightweight, Salesforce-native bulletin board that unifies two workflows:
 
 Bulletin ships as a set of **LWCs** backed by a single **Apex service**. It uses standard Salesforce features (Queues, Permission Sets) and a small set of custom objects for requests, categories, tags, comments, and statuses. 
 
-Unmanaged Package Installation Link: https://login.salesforce.com/packaging/installPackage.apexp?p0=04tgK0000006iET
+Unmanaged Package Installation Link: https://login.salesforce.com/packaging/installPackage.apexp?p0=04tgK0000006iG5
 
 ---
 
