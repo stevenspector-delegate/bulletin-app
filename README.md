@@ -177,7 +177,7 @@ Standard
 * **Bulletin Admin**
 * **Bulletin User** 
 
-2. *(Optional but recommended)* Create **Bulletin Support** queue (API Name `Bulletin_Support`) and set a **Queue Email** if desired. 
+2. *(Optional but recommended)* Create **Bulletin Support** queue (API Name `Bulletin_Support`) and set a **Queue Email** if desired. Be sure to add `Request` as a supported object.
 
 3. **Create Categories** and set **Active**. 
 
@@ -197,7 +197,7 @@ Standard
 
 * [ ] Package installed
 * [ ] Permission sets assigned
-* [ ] (Optional) **Bulletin Support** Queue created and email set
+* [ ] (Optional) **Bulletin Support** Queue created and supports `Request`
 * [ ] Categories created & **Active**
 * [ ] Statuses created, **Active**, scoped per type, and ordered
 * [ ] “New Bulletin Request” action added to **Global Publisher Layout** 
